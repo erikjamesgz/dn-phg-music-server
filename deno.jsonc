@@ -1,0 +1,14 @@
+{
+  "build": {
+    "command": "deno run --allow-all main.ts"
+  },
+  "exclude": [
+    "node_modules",
+    "scripts_data.json"
+  ],
+  "include": [
+    "**/*.ts",
+    "**/*.js",
+    "**/*.json"
+  ]
+}
