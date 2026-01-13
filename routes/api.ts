@@ -568,7 +568,7 @@ export class APIRoutes {
       }
       
       const success = await this.storage.setDefaultSource(id);
-      const scriptInfo = this.storage.getScript(id);
+      const scriptInfo = await this.storage.getScript(id);
       
       if (success && scriptInfo) {
         await this.engine.unloadScript(id);
@@ -657,8 +657,8 @@ export class APIRoutes {
         },
       });
 
-      if (result.status && result.data && result.data.data) {
-        const musicUrlData = result.data.data as { url: string; type: string };
+      if (result.status && result.data && result.data.result) {
+        const musicUrlData = result.data.result as { url: string; type: string };
         if (musicUrlData.url) {
           return new Response(
             JSON.stringify({

@@ -21,7 +21,7 @@ export class RequestHandler {
   private storage: ScriptStorage;
   private requestQueue: Map<string, [Function, Function]> = new Map();
   private timeouts: Map<string, number> = new Map();
-  private readonly REQUEST_TIMEOUT = 20000;
+  private readonly REQUEST_TIMEOUT = 60000;
 
   constructor(engine: ScriptEngine, storage: ScriptStorage) {
     this.engine = engine;

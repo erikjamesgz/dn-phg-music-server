@@ -70,6 +70,12 @@ export class ScriptEngine {
 
       await sandbox.initialize();
 
+      const registeredSources = sandbox.getRegisteredSourceList();
+      if (registeredSources.length > 0) {
+        scriptInfo.supportedSources = registeredSources;
+        console.log(`📋 更新脚本支持的音源: ${registeredSources.join(', ')}`);
+      }
+
       this.sandboxes.set(scriptInfo.id, sandbox);
       this.activeScripts.set(scriptInfo.id, scriptInfo);
 
@@ -132,7 +138,7 @@ export class ScriptEngine {
     throw new Error(`No available script for source: ${source}`);
   }
 
-  async getPic(request: any): Promise<string> {
+  async getPic(request: any): Promise<MusicUrlResponse> {
     const { source, info } = request;
 
     for (const [scriptId, sandbox] of this.sandboxes) {

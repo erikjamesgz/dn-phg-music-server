@@ -16,19 +16,14 @@ const testApi = {
     
     console.log(`获取音乐URL: ${name} - ${singer}, 音质: ${type}`);
     
-    // 模拟API请求
-    const url = await this.request(
-      `https://api.example.com/music/url?songmid=${songmid}&type=${type}`
-    );
-
-    if (url) {
-      return {
-        type,
-        url: url,
-      };
-    }
-
-    throw new Error('获取音乐URL失败');
+    // 返回模拟的音乐URL
+    const mockUrl = `https://music.example.com/${songmid}.${type === 'flac' ? 'flac' : 'mp3'}`;
+    console.log(`返回模拟URL: ${mockUrl}`);
+    
+    return {
+      type,
+      url: mockUrl,
+    };
   },
 
   // 获取歌词
@@ -55,22 +50,6 @@ const testApi = {
     console.log(`获取封面: ${songmid}`);
     
     return `https://api.example.com/pic/${songmid}.jpg`;
-  },
-
-  // HTTP请求封装
-  request(url, options = {}) {
-    return new Promise((resolve, reject) => {
-      lx.request(url, {
-        method: 'GET',
-        timeout: 10000,
-      }, (err, resp, body) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        resolve(body);
-      });
-    });
   },
 };
 

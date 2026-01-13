@@ -53,8 +53,8 @@ export class ScriptStorage {
       try {
         storedData = await Deno.readTextFile(STORAGE_FILE);
       } catch (error) {
-        console.log(`📁 存储文件不存在，尝试从环境变量加载`);
-        storedData = Deno.env.get(STORAGE_KEY) || localStorage.getItem(STORAGE_KEY);
+        console.log(`📁 存储文件不存在，等待客户端导入脚本`);
+        return;
       }
       
       if (storedData) {

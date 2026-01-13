@@ -30,18 +30,31 @@ export class RequestManager {
   }
 
   addRequest(options: RequestOptions, callback?: RequestCallback): void {
-    const controller = new AbortController();
     const requestKey = this.generateRequestKey(options);
+    
+    console.log(`🔍 RequestManager.addRequest 被调用 [${requestKey}]:`, {
+      url: options.url,
+      method: options.method,
+      headers: options.headers,
+      hasBody: !!options.body,
+      hasForm: !!options.form,
+      hasFormData: !!options.formData,
+      timeout: options.timeout,
+    });
+    
+    const controller = new AbortController();
 
     this.activeRequests.set(requestKey, controller);
 
-    this.executeRequest(options, controller.signal, callback);
+    this.executeRequest(options, controller.signal, callback, requestKey);
   }
 
   private async executeRequest(
     options: RequestOptions,
     signal: AbortSignal,
-    callback?: RequestCallback
+    callback?: RequestCallback,
+    requestKey?: string,
+    retryCount: number = 0
   ): Promise<void> {
     const startTime = Date.now();
 
@@ -94,17 +107,14 @@ export class RequestManager {
       const responseBody = await response.arrayBuffer();
       const bytes = responseBody.byteLength;
 
-      let parsedBody: any = responseBody;
-      const responseContentType = response.headers.get('Content-Type') || '';
+      const rawUint8Array = new Uint8Array(responseBody);
+      const rawString = new TextDecoder().decode(responseBody);
+      let parsedBody: any = rawString;
 
       try {
-        if (responseContentType.includes('application/json')) {
-          parsedBody = JSON.parse(new TextDecoder().decode(responseBody));
-        } else if (responseContentType.includes('text/')) {
-          parsedBody = new TextDecoder().decode(responseBody);
-        }
+        parsedBody = JSON.parse(rawString);
       } catch (e) {
-        parsedBody = new TextDecoder().decode(responseBody);
+        parsedBody = rawString;
       }
 
       const resp: Response = {
@@ -112,26 +122,87 @@ export class RequestManager {
         statusMessage: response.statusText,
         headers: Object.fromEntries(response.headers.entries()),
         bytes,
-        raw: new Uint8Array(responseBody),
+        raw: rawUint8Array,
         body: parsedBody,
       };
 
       const duration = Date.now() - startTime;
-      console.log(`🌐 请求完成: ${options.method} ${options.url} [${response.status}] ${duration}ms`);
+      console.log(`🌐 请求完成 [${requestKey}]: ${options.method} ${options.url} [${response.status}] ${duration}ms`);
+      console.log(`🔍 响应数据 [${requestKey}]:`, {
+        statusCode: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries()),
+        bodyLength: bytes,
+        bodyType: typeof parsedBody,
+        bodyPreview: typeof parsedBody === 'string' ? parsedBody.substring(0, 100) : JSON.stringify(parsedBody).substring(0, 100),
+      });
+      console.log(`🔍 原始响应字符串长度 [${requestKey}]: ${rawString.length}`);
+      console.log(`🔍 原始响应字符串前200字符 [${requestKey}]: ${rawString.substring(0, 200)}`);
 
       if (callback) {
-        callback(null, resp, parsedBody);
+        console.log(`🔍 调用回调函数 [${requestKey}]`);
+        console.log(`🔍 回调函数参数:`, {
+          error: null,
+          response: {
+            statusCode: resp.statusCode,
+            statusMessage: resp.statusMessage,
+            headers: resp.headers,
+            bytes: resp.bytes,
+            rawLength: resp.raw.length,
+            bodyType: typeof parsedBody,
+            bodyValue: parsedBody,
+          },
+          body: parsedBody,
+        });
+        
+        try {
+          callback(null, resp, parsedBody);
+          console.log(`🔍 回调函数执行完成 [${requestKey}]`);
+        } catch (callbackError: any) {
+          console.error(`❌ 回调函数执行出错 [${requestKey}]:`, callbackError);
+          console.error(`❌ 回调函数错误堆栈 [${requestKey}]:`, callbackError.stack);
+          throw callbackError;
+        }
+      } else {
+        console.log(`🔍 没有回调函数 [${requestKey}]`);
       }
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        console.log(`⏹️ 请求已取消: ${options.url}`);
+        console.log(`⏹️ 请求已取消 [${requestKey}]: ${options.url}`);
         if (callback) {
-          callback(new Error('Request cancelled'), null, null);
+          const errorResponse: Response = {
+            statusCode: 0,
+            statusMessage: 'Request cancelled',
+            headers: {},
+            bytes: 0,
+            raw: new Uint8Array(0),
+            body: null,
+          };
+          callback(new Error('Request cancelled'), errorResponse, null);
         }
       } else {
-        console.error(`❌ 请求失败: ${options.url}`, error.message);
-        if (callback) {
-          callback(error, null, null);
+        console.error(`❌ 请求失败 [${requestKey}]: ${options.url}`, error.message);
+        console.error(`❌ 错误详情 [${requestKey}]:`, error);
+        console.error(`❌ 错误堆栈 [${requestKey}]:`, error.stack);
+        
+        const mirrorUrl = this.getMirrorUrl(options.url);
+        if (mirrorUrl && retryCount === 0) {
+          console.log(`🔄 尝试使用镜像URL重试: ${mirrorUrl}`);
+          const mirroredOptions = { ...options, url: mirrorUrl };
+          await this.executeRequest(mirroredOptions, signal, callback, requestKey, retryCount + 1);
+        } else {
+          if (callback) {
+            const errorResponse: Response = {
+              statusCode: 0,
+              statusMessage: error.message || 'Request failed',
+              headers: {},
+              bytes: 0,
+              raw: new Uint8Array(0),
+              body: null,
+            };
+            console.log(`🔍 调用错误回调函数 [${requestKey}]`);
+            callback(error, errorResponse, null);
+          }
         }
       }
     }
@@ -149,6 +220,23 @@ export class RequestManager {
 
   private generateRequestKey(options: RequestOptions): string {
     return `${options.method}_${options.url}_${Date.now()}`;
+  }
+
+  private getMirrorUrl(url: string): string | null {
+    try {
+      const urlObj = new URL(url);
+      
+      if (urlObj.hostname === 'registry.npmjs.org') {
+        const mirrorUrl = new URL(url);
+        mirrorUrl.hostname = 'registry.npmmirror.com';
+        console.log(`🔄 检测到 npm registry，使用镜像: ${mirrorUrl.toString()}`);
+        return mirrorUrl.toString();
+      }
+      
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   private isLocalUrl(url: string): boolean {
