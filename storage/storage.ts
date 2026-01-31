@@ -33,10 +33,14 @@ const DEFAULT_SCRIPT_INFO: Partial<ScriptInfo> = {
   version: "",
 };
 
+// 检查是否在 Deno Deploy 环境
+const isDenoDeploy = Deno.env.get("DENO_DEPLOYMENT_ID") !== undefined;
+
 export class ScriptStorage {
   private scripts: Map<string, ScriptStorageItem> = new Map();
   private defaultSourceId: string | null = null;
   private readyPromise: Promise<void>;
+  private kv: Deno.Kv | null = null;
 
   constructor() {
     this.readyPromise = this.loadFromStorage().catch((error) => {
@@ -48,8 +52,38 @@ export class ScriptStorage {
     await this.readyPromise;
   }
 
+  private async initKv(): Promise<Deno.Kv | null> {
+    if (!isDenoDeploy) return null;
+    try {
+      return await Deno.openKv();
+    } catch (error) {
+      console.error("[Storage] Failed to open KV:", error);
+      return null;
+    }
+  }
+
   private async loadFromStorage(): Promise<void> {
     try {
+      // Deno Deploy 环境使用 KV
+      if (isDenoDeploy) {
+        this.kv = await this.initKv();
+        if (this.kv) {
+          const result = await this.kv.get<StorageData>([STORAGE_KEY]);
+          if (result.value) {
+            const data = result.value;
+            if (data.scripts) {
+              for (const item of data.scripts) {
+                this.scripts.set(item.id, item);
+              }
+            }
+            this.defaultSourceId = data.defaultSourceId || null;
+            console.log(`[Storage] Loaded ${this.scripts.size} scripts from KV`);
+          }
+          return;
+        }
+      }
+
+      // 本地环境使用文件
       let storedData: string | null = null;
       
       try {
@@ -70,6 +104,7 @@ export class ScriptStorage {
         this.defaultSourceId = data.defaultSourceId || null;
         
         const scriptCount = this.scripts.size;
+        console.log(`[Storage] Loaded ${scriptCount} scripts from file`);
       }
     } catch (error) {
       console.error("加载脚本存储失败:", error);
@@ -84,6 +119,14 @@ export class ScriptStorage {
         defaultSourceId: this.defaultSourceId,
       };
       
+      // Deno Deploy 环境使用 KV
+      if (isDenoDeploy && this.kv) {
+        await this.kv.set([STORAGE_KEY], data);
+        console.log("[Storage] Saved to KV");
+        return;
+      }
+
+      // 本地环境使用文件
       const jsonData = JSON.stringify(data, null, 2);
       await Deno.writeTextFile(STORAGE_FILE, jsonData);
     } catch (error) {
