@@ -1,17 +1,127 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@std/encoding@*": "1.0.10",
+    "npm:buffer@*": "6.0.3",
+    "npm:buffer@^6.0.3": "6.0.3",
     "npm:crypto-js@*": "4.2.0",
-    "npm:jsrsasign@*": "11.1.0"
+    "npm:crypto-js@^4.2.0": "4.2.0",
+    "npm:http-proxy-agent@*": "7.0.2",
+    "npm:http-proxy-agent@7": "7.0.2",
+    "npm:https-proxy-agent@*": "7.0.6",
+    "npm:https-proxy-agent@^7.0.2": "7.0.6",
+    "npm:jsrsasign@*": "11.1.0",
+    "npm:node-forge@*": "1.3.3",
+    "npm:node-forge@^1.3.1": "1.3.3",
+    "npm:pako@*": "2.1.0",
+    "npm:pako@^2.1.0": "2.1.0"
+  },
+  "jsr": {
+    "@std/encoding@1.0.10": {
+      "integrity": "8783c6384a2d13abd5e9e87a7ae0520a30e9f56aeeaa3bdf910a3eaaf5c811a1"
+    }
   },
   "npm": {
+    "agent-base@7.1.4": {
+      "integrity": "sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==",
+      "tarball": "https://registry.npmmirror.com/agent-base/-/agent-base-7.1.4.tgz"
+    },
+    "base64-js@1.5.1": {
+      "integrity": "sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==",
+      "tarball": "https://registry.npmmirror.com/base64-js/-/base64-js-1.5.1.tgz"
+    },
+    "buffer@6.0.3": {
+      "integrity": "sha512-FTiCpNxtwiZZHEZbcbTIcZjERVICn9yq/pDFkTl95/AxzD1naBctN7YO68riM/gLSDY7sdrMby8hofADYuuqOA==",
+      "dependencies": [
+        "base64-js",
+        "ieee754"
+      ],
+      "tarball": "https://registry.npmmirror.com/buffer/-/buffer-6.0.3.tgz"
+    },
     "crypto-js@4.2.0": {
       "integrity": "sha512-KALDyEYgpY+Rlob/iriUtjV6d5Eq+Y191A5g4UqLAi8CyGP9N1+FdVbkc1SxKc2r4YAYqG8JzO2KGL+AizD70Q==",
       "tarball": "https://registry.npmmirror.com/crypto-js/-/crypto-js-4.2.0.tgz"
     },
+    "debug@4.4.3": {
+      "integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==",
+      "dependencies": [
+        "ms"
+      ],
+      "tarball": "https://registry.npmmirror.com/debug/-/debug-4.4.3.tgz"
+    },
+    "http-proxy-agent@7.0.2": {
+      "integrity": "sha512-T1gkAiYYDWYx3V5Bmyu7HcfcvL7mUrTWiM6yOfa3PIphViJ/gFPbvidQ+veqSOHci/PxBcDabeUNCzpOODJZig==",
+      "dependencies": [
+        "agent-base",
+        "debug"
+      ],
+      "tarball": "https://registry.npmmirror.com/http-proxy-agent/-/http-proxy-agent-7.0.2.tgz"
+    },
+    "https-proxy-agent@7.0.6": {
+      "integrity": "sha512-vK9P5/iUfdl95AI+JVyUuIcVtd4ofvtrOr3HNtM2yxC9bnMbEdp3x01OhQNnjb8IJYi38VlTE3mBXwcfvywuSw==",
+      "dependencies": [
+        "agent-base",
+        "debug"
+      ],
+      "tarball": "https://registry.npmmirror.com/https-proxy-agent/-/https-proxy-agent-7.0.6.tgz"
+    },
+    "ieee754@1.2.1": {
+      "integrity": "sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA==",
+      "tarball": "https://registry.npmmirror.com/ieee754/-/ieee754-1.2.1.tgz"
+    },
     "jsrsasign@11.1.0": {
       "integrity": "sha512-Ov74K9GihaK9/9WncTe1mPmvrO7Py665TUfUKvraXBpu+xcTWitrtuOwcjf4KMU9maPaYn0OuaWy0HOzy/GBXg==",
       "tarball": "https://registry.npmmirror.com/jsrsasign/-/jsrsasign-11.1.0.tgz"
+    },
+    "ms@2.1.3": {
+      "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
+      "tarball": "https://registry.npmmirror.com/ms/-/ms-2.1.3.tgz"
+    },
+    "node-forge@1.3.3": {
+      "integrity": "sha512-rLvcdSyRCyouf6jcOIPe/BgwG/d7hKjzMKOas33/pHEr6gbq18IK9zV7DiPvzsz0oBJPme6qr6H6kGZuI9/DZg==",
+      "tarball": "https://registry.npmmirror.com/node-forge/-/node-forge-1.3.3.tgz"
+    },
+    "pako@2.1.0": {
+      "integrity": "sha512-w+eufiZ1WuJYgPXbV/PO3NCMEc3xqylkKHzp8bxp1uW4qaSNQUkwmLLEc3kKsfz8lpV1F8Ht3U1Cm+9Srog2ug==",
+      "tarball": "https://registry.npmmirror.com/pako/-/pako-2.1.0.tgz"
+    }
+  },
+  "redirects": {
+    "https://esm.sh/safer-buffer@^2.1.2?target=denonext": "https://esm.sh/safer-buffer@2.1.2?target=denonext"
+  },
+  "remote": {
+    "https://deno.land/std@0.216.0/assert/assert.ts": "bec068b2fccdd434c138a555b19a2c2393b71dfaada02b7d568a01541e67cdc5",
+    "https://deno.land/std@0.216.0/assert/assertion_error.ts": "9f689a101ee586c4ce92f52fa7ddd362e86434ffdf1f848e45987dc7689976b8",
+    "https://deno.land/std@0.216.0/crypto/_fnv/fnv32.ts": "ba2c5ef976b9f047d7ce2d33dfe18671afc75154bcf20ef89d932b2fe8820535",
+    "https://deno.land/std@0.216.0/crypto/_fnv/fnv64.ts": "580cadfe2ff333fe253d15df450f927c8ac7e408b704547be26aab41b5772558",
+    "https://deno.land/std@0.216.0/crypto/_fnv/mod.ts": "8dbb60f062a6e77b82f7a62ac11fabfba52c3cd408c21916b130d8f57a880f96",
+    "https://deno.land/std@0.216.0/crypto/_fnv/util.ts": "27b36ce3440d0a180af6bf1cfc2c326f68823288540a354dc1d636b781b9b75f",
+    "https://deno.land/std@0.216.0/crypto/_wasm/lib/deno_std_wasm_crypto.generated.mjs": "76c727912539737def4549bb62a96897f37eb334b979f49c57b8af7a1617635e",
+    "https://deno.land/std@0.216.0/crypto/_wasm/mod.ts": "c55f91473846827f077dfd7e5fc6e2726dee5003b6a5747610707cdc638a22ba",
+    "https://deno.land/std@0.216.0/crypto/crypto.ts": "4448f8461c797adba8d70a2c60f7795a546d7a0926e96366391bffdd06491c16",
+    "https://deno.land/std@0.216.0/crypto/mod.ts": "7e7971e8abd90addbb02640e43c124e28d10b07e88b61851049c40fc2b5eb04b",
+    "https://deno.land/std@0.216.0/crypto/timing_safe_equal.ts": "bc3622b5aec05e2d8b735bf60633425c34333c06cfb6c4a9f102e4a0f3931ced",
+    "https://deno.land/std@0.216.0/crypto/unstable_keystack.ts": "c2a6f6ed67a4e78745e3c9b490ebb7c12f6066f5c2fe0c69d353961909dc82dd",
+    "https://deno.land/std@0.216.0/encoding/_util.ts": "beacef316c1255da9bc8e95afb1fa56ed69baef919c88dc06ae6cb7a6103d376",
+    "https://deno.land/std@0.216.0/encoding/base64.ts": "96e61a556d933201266fea84ae500453293f2aff130057b579baafda096a96bc",
+    "https://deno.land/std@0.216.0/encoding/base64url.ts": "9cc46cf510436be63ac00ebf97a7de1993e603ca58e1853b344bf90d80ea9945",
+    "https://esm.sh/iconv-lite@0.6.3": "4fae49808d7dec9e1855f930198aa4d71c2dba33a8f98db26b756b619da0f872",
+    "https://esm.sh/iconv-lite@0.6.3/denonext/iconv-lite.mjs": "58314c9a1d16db741c1edb519849067c19f931ea0331a2e3ad5c02b1dcf2f82a",
+    "https://esm.sh/pako@2.1.0": "3dcc4182e7adf7e7639788c643bb99c4379e2d4ffd475b29fbf4b8590d9dd3ac",
+    "https://esm.sh/pako@2.1.0/denonext/pako.mjs": "6f8c08355f970b0592aff0bdaf53ab881876152f0a2c6910cd5f3c2b71fb791d",
+    "https://esm.sh/safer-buffer@2.1.2/denonext/safer-buffer.mjs": "63b601ca3ed03a32349ca04538ac898f2c520dbc6b554246d11c482c31e8a6b8",
+    "https://esm.sh/safer-buffer@2.1.2?target=denonext": "381ed15e73b07affd71d58c070213d027e4b8951c381f44e5f80589d3ea9957b"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:buffer@^6.0.3",
+        "npm:crypto-js@^4.2.0",
+        "npm:http-proxy-agent@7",
+        "npm:https-proxy-agent@^7.0.2",
+        "npm:node-forge@^1.3.1",
+        "npm:pako@^2.1.0"
+      ]
     }
   }
 }

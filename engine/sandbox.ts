@@ -1,5 +1,23 @@
-import { ScriptInfo, MusicUrlRequest, MusicUrlResponse } from "./script_engine.ts";
+import { ScriptInfo, MusicUrlRequest, MusicUrlResponse, MusicUrlData, LyricData, PicData } from "./script_engine.ts";
 import { RequestManager } from "./request_manager.ts";
+import pako from "npm:pako";
+import { Buffer } from "npm:buffer";
+
+const USER_API_RENDERER_EVENT_NAME = {
+  initEnv: 'userApi_initEnv',
+  init: 'userApi_init',
+  request: 'userApi_request',
+  response: 'userApi_response',
+  openDevTools: 'userApi_openDevTools',
+  showUpdateAlert: 'userApi_showUpdateAlert',
+  getProxy: 'userApi_getProxy',
+  proxyUpdate: 'userApi_proxyUpdate',
+};
+
+const proxy = {
+  host: '',
+  port: '',
+};
 
 export class Sandbox {
   private scriptInfo: ScriptInfo;
@@ -7,17 +25,60 @@ export class Sandbox {
   private isInitialized: boolean = false;
   private registeredSources: Map<string, any> = new Map();
   private requestHandler: any = null;
+  private initError: string | null = null;
+  private initResult: any = null;
+  private requestCallbacks: Map<string, { resolve: any; reject: any }> = new Map();
 
   constructor(scriptInfo: ScriptInfo, requestManager: RequestManager) {
     this.scriptInfo = scriptInfo;
     this.requestManager = requestManager;
   }
 
+  private sendMessage(action: string, data: any, status: boolean, message?: string): void {
+      console.log('[Sandbox sendMessage] called with action:', action, 'status:', status, 'message:', message);
+      
+      switch (action) {
+        case USER_API_RENDERER_EVENT_NAME.init:
+          if (status) {
+            console.log('[Sandbox] Init successful, data:', JSON.stringify(data));
+            this.initResult = data;
+            this.isInitialized = true;
+          } else {
+            console.error('[Sandbox] Init failed, message:', message);
+            this.initError = message || 'Initialization failed';
+          }
+          break;
+        case USER_API_RENDERER_EVENT_NAME.response:
+          const requestKey = data?.requestKey;
+          if (requestKey && this.requestCallbacks.has(requestKey)) {
+            const callback = this.requestCallbacks.get(requestKey);
+            if (status) {
+              callback?.resolve(data);
+            } else {
+              const errorMsg = message || 'Request failed';
+              console.error('[Sandbox sendMessage] Response error:', errorMsg);
+              callback?.reject(new Error(errorMsg));
+            }
+            this.requestCallbacks.delete(requestKey);
+          } else {
+            console.warn('[Sandbox sendMessage] No callback found for requestKey:', requestKey);
+          }
+          break;
+        case USER_API_RENDERER_EVENT_NAME.openDevTools:
+          console.log('[Sandbox] Open DevTools requested');
+          break;
+        case USER_API_RENDERER_EVENT_NAME.showUpdateAlert:
+          console.log('[Sandbox] Update alert:', data);
+          break;
+        default:
+          console.log('[Sandbox] Unknown action:', action);
+      }
+    }
+
   async initialize(): Promise<void> {
     try {
       console.log('[Sandbox] 开始初始化脚本:', this.scriptInfo.name);
       
-      // 完全按照桌面版的实现
       const allSources = ['kw', 'kg', 'tx', 'wy', 'mg', 'local'];
       const supportQualitys = {
         kw: ['128k', '320k', 'flac', 'flac24bit'],
@@ -37,194 +98,272 @@ export class Sandbox {
         local: ['musicUrl', 'lyric', 'pic'],
       };
 
-      // 设置全局变量
-      (globalThis as any).DEV_ENABLE = false;
-      (globalThis as any).UPDATE_ENABLE = true;
-      (globalThis as any).API_URL = '';
-      (globalThis as any).API_KEY = '';
-      (globalThis as any).MUSIC_QUALITY = {
-        '128k': 128000,
-        '320k': 320000,
-        'flac': 999000,
-        'flac24bit': 999000,
-      };
-      (globalThis as any).MUSIC_SOURCE = 'kw';
-
-      // 设置事件系统
       const EVENT_NAMES = {
         request: 'request',
         inited: 'inited',
         updateAlert: 'updateAlert',
+        response: 'response',
       };
+      const eventNames = Object.values(EVENT_NAMES);
+      const events: { request: ((data: any) => any) | null } = { request: null };
 
-      let isInited = false;
-      let isShowedUpdateAlert = false;
       let isInitedApi = false;
-      let events = { request: null };
-      let eventNames = Object.values(EVENT_NAMES);
-      let initError = null;
+      let isShowedUpdateAlert = false;
 
-      // 设置全局事件对象
-      (globalThis as any).events = events;
-      (globalThis as any).EVENT_NAMES = EVENT_NAMES;
-      (globalThis as any).isInited = isInited;
-      (globalThis as any).isShowedUpdateAlert = isShowedUpdateAlert;
-      (globalThis as any).isInitedApi = isInitedApi;
-      (globalThis as any).initError = initError;
+      const httpsRxp = /^https:/;
 
-      // 设置全局错误处理器
-      (globalThis as any).__lx_init_error_handler__ = {
-        sendError: (errorMessage: string) => {
-          if (isInitedApi) return;
-          isInitedApi = true;
-          console.error('[Sandbox] 脚本初始化错误:', errorMessage);
-          initError = errorMessage;
-        }
+      const getRequestAgent = (url: string) => {
+        return undefined;
       };
 
-      // 添加全局错误监听器
-      if (typeof globalThis.addEventListener === 'undefined') {
-        (globalThis as any).addEventListener = (eventType: string, handler: any) => {
-          console.log('[Sandbox] 添加事件监听器:', eventType);
+      const verifyLyricInfo = (info: any): any => {
+        if (typeof info != 'object' || typeof info.lyric != 'string') throw new Error('failed');
+        if (info.lyric.length > 51200) throw new Error('failed');
+        return {
+          lyric: info.lyric,
+          tlyric: (typeof info.tlyric == 'string' && info.tlyric.length < 5120) ? info.tlyric : null,
+          rlyric: (typeof info.rlyric == 'string' && info.rlyric.length < 5120) ? info.rlyric : null,
+          lxlyric: (typeof info.lxlyric == 'string' && info.lxlyric.length < 8192) ? info.lxlyric : null,
         };
-      }
-
-      globalThis.addEventListener('error', (event: any) => {
-        console.error('[Sandbox] 脚本运行时错误:', event.message);
-        console.error('[Sandbox] 错误详情:', event);
-      });
-
-      globalThis.addEventListener('unhandledrejection', (event: any) => {
-        console.error('[Sandbox] 脚本未处理的Promise拒绝:', event.reason);
-        console.error('[Sandbox] Promise拒绝详情:', event);
-      });
-
-      // 设置初始化错误处理器
-      globalThis.addEventListener('error', (event: any) => {
-        if (event.isTrusted) (globalThis as any).__lx_init_error_handler__.sendError(event.message.replace(/^Uncaught\\sError:\\s/, ''));
-      });
-
-      globalThis.addEventListener('unhandledrejection', (event: any) => {
-        if (!event.isTrusted) return;
-        const message = typeof event.reason === 'string' ? event.reason : event.reason?.message ?? String(event.reason);
-        (globalThis as any).__lx_init_error_handler__.sendError(message.replace(/^Error:\\s/, ''));
-      });
-
-      // 创建响应对象
-      let _internalResponse: any = {
-        statusCode: 0,
-        statusMessage: 'No response',
-        headers: {},
-        bytes: 0,
-        raw: new Uint8Array(0),
-        body: null
       };
 
-      // 创建API对象
-      const API = new Proxy({}, {
-        get: (target: any, prop: string) => {
-          if (prop === 'Response') {
-            console.log('[Sandbox] API.Response get:', _internalResponse);
-            return _internalResponse;
-          }
-          return target[prop];
-        },
-        set: (target: any, prop: string, value: any) => {
-          if (prop === 'Response') {
-            console.log('[Sandbox] API.Response set:', value);
-            if (value && typeof value === 'object' && 'body' in value) {
-              _internalResponse = value;
-            } else {
-              console.log('[Sandbox] API.Response set to invalid value, keeping current');
+      const handleRequest = (context: any, { requestKey, data }: any) => {
+        console.log('[Sandbox] handleRequest called');
+        console.log('[Sandbox]   requestKey:', requestKey);
+        console.log('[Sandbox]   data:', JSON.stringify(data));
+        
+        if (!events.request) {
+          console.error('[Sandbox] Request event is not defined');
+          this.sendMessage(USER_API_RENDERER_EVENT_NAME.response, { requestKey }, false, 'Request event is not defined');
+          return;
+        }
+        
+        try {
+          events.request.call(context, { source: data.source, action: data.action, info: data.info }).then((response: any) => {
+            console.log('[Sandbox] Request handler promise resolved');
+            console.log('[Sandbox]   response type:', typeof response);
+            console.log('[Sandbox]   response:', response);
+            
+            let sendData = { requestKey };
+            switch (data.action) {
+              case 'musicUrl':
+                console.log('[Sandbox] Processing musicUrl action');
+                if (typeof response != 'string' || response.length > 2048 || !/^https?:/.test(response)) {
+                  console.error('[Sandbox] Invalid musicUrl response');
+                  throw new Error('failed');
+                }
+                sendData.result = {
+                  source: data.source,
+                  action: data.action,
+                  data: {
+                    type: data.info.type,
+                    url: response,
+                  },
+                };
+                break;
+              case 'lyric':
+                console.log('[Sandbox] Processing lyric action');
+                sendData.result = {
+                  source: data.source,
+                  action: data.action,
+                  data: verifyLyricInfo(response),
+                };
+                break;
+              case 'pic':
+                console.log('[Sandbox] Processing pic action');
+                if (typeof response != 'string' || response.length > 2048 || !/^https?:/.test(response)) {
+                  console.error('[Sandbox] Invalid pic response');
+                  throw new Error('failed');
+                }
+                sendData.result = {
+                  source: data.source,
+                  action: data.action,
+                  data: response,
+                };
+                break;
+              default:
+                console.log('[Sandbox] Unknown action:', data.action);
             }
-            return true;
+            console.log('[Sandbox] 请求成功:', sendData.result);
+            this.sendMessage(USER_API_RENDERER_EVENT_NAME.response, sendData, true);
+          }).catch((err: any) => {
+            const errMsg = err?.message || String(err) || 'Request failed';
+            console.error('[Sandbox] Request handler promise rejected:', errMsg);
+            this.sendMessage(USER_API_RENDERER_EVENT_NAME.response, { requestKey }, false, errMsg);
+          });
+        } catch (err: any) {
+          const errMsg = err?.message || String(err) || 'Request failed';
+          console.error('[Sandbox] handleRequest exception:', errMsg);
+          this.sendMessage(USER_API_RENDERER_EVENT_NAME.response, { requestKey }, false, errMsg);
+        }
+      };
+
+      const handleInit = (context: any, info: any) => {
+        console.log('[Sandbox] handleInit called');
+        console.log('[Sandbox] handleInit info:', JSON.stringify(info));
+        
+        if (!info) {
+          console.error('[Sandbox] Missing init info');
+          this.sendMessage(USER_API_RENDERER_EVENT_NAME.init, null, false, 'Missing required parameter init info');
+          return;
+        }
+        
+        if (info.openDevTools === true) {
+          console.log('[Sandbox] Open DevTools requested');
+          this.sendMessage(USER_API_RENDERER_EVENT_NAME.openDevTools, {}, true);
+        }
+        
+        const sourceInfo: any = { sources: {} };
+        
+        try {
+          for (const source of allSources) {
+            const userSource = (info as any).sources?.[source];
+            if (!userSource || userSource.type !== 'music') continue;
+            const qualitys = supportQualitys[source];
+            const actions = supportActions[source];
+            sourceInfo.sources[source] = {
+              type: 'music',
+              actions: actions.filter((a: string) => userSource.actions?.includes(a)),
+              qualitys: qualitys.filter((q: string) => userSource.qualitys?.includes(q)),
+            };
           }
-          target[prop] = value;
-          return true;
-        }
-      });
-
-      (globalThis as any).API = API;
-      (globalThis as any)._internalResponse = _internalResponse;
-
-      // 设置全局响应变量
-      (globalThis as any).response = null;
-      (globalThis as any).APIResponse = null;
-      (globalThis as any).apiResponse = null;
-      (globalThis as any).api_response = null;
-
-      // 创建request函数（完全按照桌面版实现）
-      const request = function(this: any, url: string, options: any, callback: any) {
-        console.log('[Sandbox] request called:');
-        console.log('[Sandbox]   URL:', url);
-        console.log('[Sandbox]   Options:', JSON.stringify(options, null, 2));
-        
-        // 替换不可用的 API 服务器
-        const oldUrl = url;
-        if (url.includes('88.lxmusic.xn--fiqs8s')) {
-          // 移除 sign 参数并替换 API 服务器
-          url = url.replace('88.lxmusic.xn--fiqs8s/lxmusicv4', 'lxmusicapi.onrender.com');
-          // 移除 sign 参数
-          const urlObj = new URL(url);
-          urlObj.searchParams.delete('sign');
-          url = urlObj.toString();
-          console.log('[Sandbox]   URL 替换:', oldUrl, '->', url);
+        } catch (error: any) {
+          console.error('[Sandbox] Error in handleInit:', error.message);
+          this.sendMessage(USER_API_RENDERER_EVENT_NAME.init, null, false, error.message);
+          return;
         }
         
-        const method = options && options.method ? options.method : 'get';
-        const timeout = options && options.response_timeout ? options.response_timeout : 60000;
-        const headers = options && options.headers ? options.headers : {};
-        const data = options && options.body ? options.body : undefined;
-        const form = options && options.form ? options.form : undefined;
-        const formData = options && options.formData ? options.formData : undefined;
-
-        // 替换 API KEY
-        if (oldUrl.includes('88.lxmusic.xn--fiqs8s') && headers && headers['X-Request-Key'] === 'lxmusic') {
-          headers['X-Request-Key'] = 'share-v2';
-          console.log('[Sandbox]   API KEY 替换: lxmusic -> share-v2');
+        console.log('[Sandbox] Source info prepared:', Object.keys(sourceInfo.sources));
+        
+        const registeredSourceList = Object.keys((info as any).sources || {});
+        console.log('[Sandbox] Storing registered sources:', registeredSourceList);
+        for (const source of registeredSourceList) {
+          this.registeredSources.set(source, (info as any).sources[source]);
         }
+        
+        this.sendMessage(USER_API_RENDERER_EVENT_NAME.init, sourceInfo, true);
 
-        console.log('[Sandbox]   Method:', method);
-        console.log('[Sandbox]   Headers:', JSON.stringify(headers, null, 2));
-        console.log('[Sandbox]   Body:', data ? data.substring(0, 100) : 'undefined');
-        console.log('[Sandbox]   Form:', form ? JSON.stringify(form).substring(0, 100) : 'undefined');
-        console.log('[Sandbox]   FormData:', formData ? 'present' : 'undefined');
-
-        // 按照桌面版实现，使用fetch但模拟needle的行为
-        const fetchOptions: any = {
-          method: method,
-          headers: headers,
+        (globalThis as any)._handleRequest = (data: any) => {
+          console.log('[Sandbox] _handleRequest called');
+          handleRequest(context, data);
         };
+      };
 
-        if (data) {
-          fetchOptions.body = data;
-        } else if (form) {
-          fetchOptions.body = new URLSearchParams(form).toString();
-          fetchOptions.headers = {
-            ...headers,
-            'Content-Type': 'application/x-www-form-urlencoded'
-          };
-        } else if (formData) {
-          fetchOptions.body = formData;
-          fetchOptions.headers = {
-            ...headers,
-            'Content-Type': 'multipart/form-data'
-          };
+      const handleShowUpdateAlert = (data: any, resolve: any, reject: any) => {
+        if (!data || typeof data != 'object') return reject(new Error('parameter format error.'));
+        if (!data.log || typeof data.log != 'string') return reject(new Error('log is required.'));
+        if (data.updateUrl && !/^https?:\/\/[^\s$.?#].[^\s]*$/.test(data.updateUrl) && data.updateUrl.length > 1024) delete data.updateUrl;
+        if (data.log.length > 1024) data.log = data.log.substring(0, 1024) + '...';
+        console.log('[Sandbox] 更新提示:', data.log);
+        this.sendMessage(USER_API_RENDERER_EVENT_NAME.showUpdateAlert, {
+          log: data.log,
+          updateUrl: data.updateUrl,
+        }, true);
+        resolve();
+      };
+
+      const onError = (errorMessage: string) => {
+        console.log('[Sandbox] onError called with:', errorMessage);
+        
+        // If already processed an error, don't process again
+        if (isInitedApi) {
+          console.log('[Sandbox] onError: already processed an error, ignoring');
+          return;
         }
+        
+        // Mark as initialized to prevent further error processing
+        isInitedApi = true;
+        
+        // Always call sendMessage for errors
+        this.sendMessage(USER_API_RENDERER_EVENT_NAME.init, null, false, errorMessage);
+        
+        // Don't throw error, just log it
+        // This matches the desktop version behavior
+        console.log('[Sandbox] onError: API not initialized, error sent');
+        if (errorMessage.length > 1024) errorMessage = errorMessage.substring(0, 1024) + '...';
+        this.initError = errorMessage;
+      };
 
+      const request = function(this: any, url: string, options: any, callback: any) {
+        console.log('[Sandbox] request called with url:', url);
+        console.log('[Sandbox] request options:', JSON.stringify(options));
+        
+        let opts = {
+          headers: options?.headers || {},
+          agent: getRequestAgent(url),
+        };
+        let data;
+        if (options?.body) {
+          data = options.body;
+        } else if (options?.form) {
+          data = options.form;
+          (opts as any).json = false;
+        } else if (options?.formData) {
+          data = options.formData;
+          (opts as any).json = false;
+        }
+        const timeout = typeof options?.response_timeout == 'number' && options.response_timeout > 0 ? Math.min(options.response_timeout, 60_000) : 60_000;
+        const followMax = options?.follow_max ?? 5; // 默认跟随 5 次重定向
+
+        const method = (options?.method || 'get').toLowerCase();
         const controller = new AbortController();
         const timeoutId = setTimeout(() => { controller.abort(); }, timeout);
 
-        fetchOptions.signal = controller.signal;
+        // 处理 headers - 移除 GET 请求中的 Content-Type
+        let headers: any = { ...opts.headers };
+        if (method === 'get' && headers['Content-Type']) {
+          delete headers['Content-Type'];
+        }
 
-        const lxContext = this;
+        const doFetch = async (currentUrl: string, redirectCount: number): Promise<Response> => {
+          const fetchOptions: any = {
+            method: method,
+            headers: headers,
+            signal: controller.signal,
+            redirect: 'manual', // 手动处理重定向以支持 follow_max
+          };
 
-        fetch(url, fetchOptions).then((response: any) => {
-          clearTimeout(timeoutId);
-          console.log('[Sandbox] Response received:');
-          console.log('[Sandbox]   Status:', response.status, response.statusText);
-          console.log('[Sandbox]   Headers:', JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2));
+          if (data) {
+            if (options?.form) {
+              const formDataObj = new URLSearchParams();
+              for (const key in data) {
+                formDataObj.append(key, data[key]);
+              }
+              fetchOptions.body = formDataObj.toString();
+              fetchOptions.headers = { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' };
+            } else if (options?.formData) {
+              const formDataObj = new FormData();
+              for (const key in data) {
+                formDataObj.append(key, data[key]);
+              }
+              fetchOptions.body = formDataObj;
+            } else {
+              fetchOptions.body = data;
+            }
+          }
+
+          const response = await fetch(currentUrl, fetchOptions);
           
+          // 处理重定向
+          if (response.status >= 300 && response.status < 400 && response.headers.has('location')) {
+            if (redirectCount >= followMax) {
+              throw new Error(`Maximum redirect count (${followMax}) exceeded`);
+            }
+            const newUrl = response.headers.get('location')!;
+            // 解析相对 URL
+            const resolvedUrl = newUrl.startsWith('http') ? newUrl : new URL(newUrl, currentUrl).href;
+            return doFetch(resolvedUrl, redirectCount + 1);
+          }
+          
+          return response;
+        };
+
+        let requestObj: any = { aborted: false };
+
+        doFetch(url, 0).then((response: any) => {
+          clearTimeout(timeoutId);
+          console.log('[Sandbox] Response received:', response.status, response.statusText);
+
           return response.arrayBuffer().then((responseBody: ArrayBuffer) => {
             const bytes = responseBody.byteLength;
             const rawUint8Array = new Uint8Array(responseBody);
@@ -246,117 +385,165 @@ export class Sandbox {
               statusMessage: response.statusText, 
               headers: headersObj, 
               bytes: bytes, 
-              raw: rawUint8Array, 
+              raw: rawUint8Array,
               body: body 
             };
             
-            _internalResponse = respObj;
-            
-            console.log('[Sandbox] Response body preview:', typeof body === 'string' ? body.substring(0, 200) : JSON.stringify(body).substring(0, 200));
-            const bodyObj = typeof body === 'object' && body ? body : {};
-            console.log('[Sandbox] 准备调用 callback, body.url:', (bodyObj as any).url);
+            console.log('[Sandbox] Response body:', typeof body === 'string' ? body.substring(0, 200) : JSON.stringify(body).substring(0, 200));
             
             if (callback) {
-              // 确保 resp.body 包含解析后的 body
-              const enhancedResp = {
-                ...respObj,
-                body: body
-              };
-              console.log('[Sandbox] 调用 callback，使用 enhancedResp.body');
-              // 只传递 enhancedResp，让脚本从 resp.body 获取 body
-              const callbackResult = callback.call(lxContext, null, enhancedResp);
-              console.log('[Sandbox] callback 返回:', callbackResult);
+              try {
+                console.log('[Sandbox] Calling callback...');
+                console.log('[Sandbox] callback type:', typeof callback);
+                console.log('[Sandbox] lx.send type:', typeof lx.send);
+                console.log('[Sandbox] lx.send === send:', lx.send === send);
+                console.log('[Sandbox] typeof lx.on:', typeof lx.on);
+                
+                // Call the callback
+                callback.call(this, null, respObj, body);
+                console.log('[Sandbox] Callback executed successfully');
+                
+                // Check if lx.send was called
+                console.log('[Sandbox] After callback, isInitedApi:', isInitedApi);
+                
+              } catch (err) {
+                console.error('[Sandbox] Callback error:', err);
+                onError(err instanceof Error ? err.message : String(err));
+              }
+            } else {
+              console.log('[Sandbox] No callback provided');
             }
           });
         }).catch((error: any) => {
           clearTimeout(timeoutId);
-          const respObj = { 
-            statusCode: 0, 
-            statusMessage: error.message || 'Network error', 
-            headers: {}, 
-            bytes: 0, 
-            raw: new Uint8Array(0), 
-            body: null 
-          };
-          _internalResponse = respObj;
-          if (callback) callback.call(lxContext, error, null, null);
+          console.error('[Sandbox] Request error:', error.message);
+          if (callback) {
+            callback.call(this, error, null, null);
+          }
         });
 
         return () => { 
-          if (!controller.signal.aborted) controller.abort(); 
+          if (!requestObj.aborted) {
+            controller.abort();
+            requestObj.aborted = true;
+          }
         };
       };
 
-      // 创建send函数（完全按照桌面版实现）
       const send = (eventName: string, data: any) => {
-        console.log('[Sandbox] send called:', eventName, data);
-        return new Promise((resolve, reject) => {
-          if (!eventNames.includes(eventName)) return reject(new Error('The event is not supported: ' + eventName));
+        console.log('[Sandbox send] Function called!');
+        console.log('[Sandbox send] eventName:', eventName);
+        console.log('[Sandbox send] data:', JSON.stringify(data));
+        console.log('[Sandbox send] isInitedApi:', isInitedApi);
+        console.log('[Sandbox send] eventNames:', eventNames);
+        console.log('[Sandbox send] typeof lx.send:', typeof lx.send);
+        console.log('[Sandbox send] lx.send === send:', lx.send === send);
+        
+        return new Promise<void>((resolve, reject) => {
+          console.log('[Sandbox send] Inside Promise executor');
+          if (!eventNames.includes(eventName)) {
+            console.log('[Sandbox send] event name not in eventNames:', eventName);
+            return reject(new Error('The event is not supported: ' + eventName));
+          }
           switch (eventName) {
             case EVENT_NAMES.inited:
-              console.log('[Sandbox] 脚本调用 send(inited)');
-              if (isInitedApi) return reject(new Error('Script is inited'));
-              isInitedApi = true;
-              if ((globalThis as any)._handleInit) {
-                (globalThis as any)._handleInit(data).then(() => { resolve(); }).catch(reject);
-              } else {
-                console.log('[Sandbox] _handleInit 不存在，直接resolve');
-                resolve();
+              console.log('[Sandbox send] Processing inited event');
+              if (isInitedApi) {
+                console.log('[Sandbox send] isInitedApi is true, ignoring duplicate init');
+                // 桌面版会 reject，但我们在服务器环境下忽略重复初始化，不报告错误
+                return resolve();
               }
+              isInitedApi = true;
+              console.log('[Sandbox send] isInitedApi set to true');
+              console.log('[Sandbox send] Calling handleInit with data');
+              try {
+                handleInit(this, data);
+                console.log('[Sandbox send] handleInit returned successfully');
+              } catch (error: any) {
+                console.error('[Sandbox send] handleInit threw error:', error.message);
+                // 初始化失败，抛出错误
+                throw error;
+              }
+              resolve();
+              console.log('[Sandbox send] Promise resolved');
               break;
             case EVENT_NAMES.updateAlert:
               if (isShowedUpdateAlert) return reject(new Error('The update alert can only be called once.'));
               isShowedUpdateAlert = true;
-              if ((globalThis as any)._handleUpdateAlert) {
-                (globalThis as any)._handleUpdateAlert(data).then(resolve).catch(reject);
-              } else {
-                resolve();
-              }
+              handleShowUpdateAlert(data, resolve, reject);
+              break;
+            case EVENT_NAMES.response:
+              console.log('[Sandbox send] Processing response event');
+              this.sendMessage(USER_API_RENDERER_EVENT_NAME.response, data, true);
+              resolve();
               break;
             default:
+              console.log('[Sandbox] send: unknown event name:', eventName);
               reject(new Error('Unknown event name: ' + eventName));
           }
         });
       };
 
-      // 创建on函数（完全按照桌面版实现）
       const on = (eventName: string, handler: any) => {
         console.log('[Sandbox] on called:', eventName);
         if (!eventNames.includes(eventName)) return Promise.reject(new Error('The event is not supported: ' + eventName));
         switch (eventName) {
           case EVENT_NAMES.request:
-            events.request = handler;
-            console.log('[Sandbox] events.request 已设置');
-            
-            // 包装原始handler，添加日志
-            const originalHandler = handler;
-            events.request = function(...args: any[]) {
-              console.log('[Sandbox] events.request 被调用:');
-              console.log('[Sandbox]   Args:', JSON.stringify(args, null, 2));
-              const result = originalHandler.apply(this, args);
-              console.log('[Sandbox]   Result type:', typeof result);
-              console.log('[Sandbox]   Result:', result ? (typeof result === 'string' ? result.substring(0, 200) : 'Promise') : 'undefined');
-              return result;
-            };
+            console.log('[Sandbox] Setting events.request handler');
+            try {
+              events.request = handler;
+              console.log('[Sandbox] events.request set successfully');
+            } catch (err) {
+              console.error('[Sandbox] Error setting events.request:', err);
+            }
             break;
           default:
             return Promise.reject(new Error('The event is not supported: ' + eventName));
         }
+        console.log('[Sandbox] on completed successfully');
         return Promise.resolve();
       };
 
-      // 创建utils对象（完全按照桌面版实现）
       const utils = {
         crypto: {
-          aesEncrypt: (buffer: any, mode: string, key: any, iv: any) => {
-            console.log('[Sandbox] aesEncrypt called');
-            // 简化实现，实际应该使用加密算法
-            return buffer;
+          aesEncrypt: async(buffer: any, mode: string, key: any, iv: any) => {
+            const cryptoKey = await crypto.subtle.importKey(
+              'raw',
+              key,
+              { name: 'AES-CBC' },
+              false,
+              ['encrypt']
+            );
+            const encrypted = await crypto.subtle.encrypt(
+              { name: 'AES-CBC', iv: iv },
+              cryptoKey,
+              buffer
+            );
+            return new Uint8Array(encrypted);
           },
-          rsaEncrypt: (buffer: any, key: string) => {
-            console.log('[Sandbox] rsaEncrypt called');
-            // 简化实现，实际应该使用RSA加密
-            return buffer;
+          rsaEncrypt: async(buffer: any, key: string) => {
+            const paddedBuffer = new Uint8Array(128);
+            const bufferLen = buffer instanceof Uint8Array ? buffer.length : new TextEncoder().encode(String(buffer)).length;
+            const startPos = 128 - bufferLen;
+            if (buffer instanceof Uint8Array) {
+              paddedBuffer.set(buffer, startPos);
+            } else {
+              const encoded = new TextEncoder().encode(String(buffer));
+              paddedBuffer.set(encoded, startPos);
+            }
+            const cryptoKey = await crypto.subtle.importKey(
+              'spki',
+              new TextEncoder().encode(key),
+              { name: 'RSA-OAEP', hash: 'SHA-1' },
+              false,
+              ['encrypt']
+            );
+            const encrypted = await crypto.subtle.encrypt(
+              { name: 'RSA-OAEP' },
+              cryptoKey,
+              paddedBuffer
+            );
+            return new Uint8Array(encrypted);
           },
           randomBytes: (size: number) => {
             const bytes = new Uint8Array(size);
@@ -364,45 +551,176 @@ export class Sandbox {
             return bytes;
           },
           md5: (str: string) => {
-            console.log('[Sandbox] md5 called:', str);
-            // 简化实现，实际应该使用MD5算法
-            let hash = 0;
-            for (let i = 0; i < str.length; i++) {
-              const char = str.charCodeAt(i);
-              hash = ((hash << 5) - hash) + char;
-              hash = hash & hash;
-            }
-            return Math.abs(hash).toString(16);
+            const md5 = (str: string): string => {
+              const rotateLeft = (lValue: number, iShiftBits: number) => (lValue << iShiftBits) | (lValue >>> (32 - iShiftBits));
+              const addUnsigned = (lX: number, lY: number) => {
+                const lX4 = (lX & 0x80000000);
+                const lY4 = (lY & 0x80000000);
+                const lX8 = (lX & 0x40000000);
+                const lY8 = (lY & 0x40000000);
+                const lResult = (lX & 0x3FFFFFFF) + (lY & 0x3FFFFFFF);
+                if (lX8 & lY8) return (lResult ^ 0x80000000 ^ lX4 ^ lY4);
+                if (lX8 | lY8) {
+                  if (lResult & 0x40000000) return (lResult ^ 0x40000000 ^ lX4 ^ lY4);
+                  else return (lResult ^ 0x80000000 ^ lX4 ^ lY4);
+                }
+                return lResult;
+              };
+              const f = (x: number, y: number, z: number) => (x & y) | (~x & z);
+              const g = (x: number, y: number, z: number) => (x & z) | (y & ~z);
+              const h = (x: number, y: number, z: number) => x ^ y ^ z;
+              const iFunc = (x: number, y: number, z: number) => y ^ (x | ~z);
+              const FF = (a: number, b: number, c: number, d: number, x: number, s: number, ac: number) => addUnsigned(a, f(b, c, d) + x + ac);
+              const GG = (a: number, b: number, c: number, d: number, x: number, s: number, ac: number) => addUnsigned(a, g(b, c, d) + x + ac);
+              const HH = (a: number, b: number, c: number, d: number, x: number, s: number, ac: number) => addUnsigned(a, h(b, c, d) + x + ac);
+              const II = (a: number, b: number, c: number, d: number, x: number, s: number, ac: number) => addUnsigned(a, iFunc(b, c, d) + x + ac);
+              const convertToWordArray = (str: string): number[] => {
+                const lWordCount: number = Math.ceil(((str.length + 8) / 64));
+                const lWordArray: number[] = new Array(lWordCount * 16);
+                let lBytePosition = 0;
+                let lByteCount = 0;
+                while (lByteCount < str.length) {
+                  const lWordCountValue = (lByteCount - (lByteCount % 4)) / 4;
+                  const lBytePositionValue = (lByteCount % 4) * 8;
+                  lWordArray[lWordCountValue] = (lWordArray[lWordCountValue] | (str.charCodeAt(lByteCount) << lBytePositionValue));
+                  lByteCount++;
+                }
+                const lWordCountValue = (lByteCount - (lByteCount % 4)) / 4;
+                const lBytePositionValue = (lByteCount % 4) * 8;
+                lWordArray[lWordCountValue] = lWordArray[lWordCountValue] | (0x80 << lBytePositionValue);
+                lWordArray[lWordCount * 14 + 2] = str.length << 3;
+                lWordArray[lWordCount * 14 + 3] = str.length >>> 29;
+                return lWordArray;
+              };
+              const wordToHex = (lValue: number): string => {
+                let wordToHexValue = '';
+                let wordToHexValue_temp = '';
+                let lByte = 0;
+                let lCount = 0;
+                for (lCount = 0; lCount <= 3; lCount++) {
+                  lByte = (lValue >>> (lCount * 8)) & 255;
+                  wordToHexValue_temp = '0' + lByte.toString(16);
+                  wordToHexValue = wordToHexValue + wordToHexValue_temp.substr(wordToHexValue_temp.length - 2, 2);
+                }
+                return wordToHexValue;
+              };
+              const x = convertToWordArray(str);
+              let a = 0x67452301;
+              let b = 0xEFCDAB89;
+              let c = 0x98BADCFE;
+              let d = 0x10325476;
+              for (let k = 0; k < x.length; k += 16) {
+                const AA = a;
+                const BB = b;
+                const CC = c;
+                const DD = d;
+                a = FF(a, b, c, d, x[k + 0], 7, -680876936);
+                d = FF(d, a, b, c, x[k + 1], 12, -389564586);
+                c = FF(c, d, a, b, x[k + 2], 17, 606105819);
+                b = FF(b, c, d, a, x[k + 3], 22, -1044525330);
+                a = FF(a, b, c, d, x[k + 4], 7, -176418897);
+                d = FF(d, a, b, c, x[k + 5], 12, 1200080426);
+                c = FF(c, d, a, b, x[k + 6], 17, -1473231341);
+                b = FF(b, c, d, a, x[k + 7], 22, -45705983);
+                a = FF(a, b, c, d, x[k + 8], 7, 1770035416);
+                d = FF(d, a, b, c, x[k + 9], 12, -1958414417);
+                c = FF(c, d, a, b, x[k + 10], 17, -42063);
+                b = FF(b, c, d, a, x[k + 11], 22, -1990404162);
+                a = FF(a, b, c, d, x[k + 12], 7, 1804603682);
+                d = FF(d, a, b, c, x[k + 13], 12, -40341101);
+                c = FF(c, d, a, b, x[k + 14], 17, -1502002290);
+                b = FF(b, c, d, a, x[k + 15], 22, 1236535329);
+                a = GG(a, b, c, d, x[k + 1], 5, -165796510);
+                d = GG(d, a, b, c, x[k + 6], 9, -1069501632);
+                c = GG(c, d, a, b, x[k + 11], 14, 643717713);
+                b = GG(b, c, d, a, x[k + 0], 20, -373897302);
+                a = GG(a, b, c, d, x[k + 5], 5, -701558691);
+                d = GG(d, a, b, c, x[k + 10], 9, 38016083);
+                c = GG(c, d, a, b, x[k + 15], 14, -660478335);
+                b = GG(b, c, d, a, x[k + 4], 20, -405537848);
+                a = GG(a, b, c, d, x[k + 9], 5, 568446438);
+                d = GG(d, a, b, c, x[k + 14], 9, -1019803690);
+                c = GG(c, d, a, b, x[k + 3], 14, -187363961);
+                b = GG(b, c, d, a, x[k + 8], 20, 1163531501);
+                a = GG(a, b, c, d, x[k + 13], 5, -1444681467);
+                d = GG(d, a, b, c, x[k + 2], 9, -51403784);
+                c = GG(c, d, a, b, x[k + 7], 14, 1735328473);
+                b = GG(b, c, d, a, x[k + 12], 20, -1926607734);
+                a = HH(a, b, c, d, x[k + 5], 4, -378558);
+                d = HH(d, a, b, c, x[k + 8], 11, -2022574463);
+                c = HH(c, d, a, b, x[k + 11], 16, 1839030562);
+                b = HH(b, c, d, a, x[k + 14], 23, -35309556);
+                a = HH(a, b, c, d, x[k + 1], 4, -1530992060);
+                d = HH(d, a, b, c, x[k + 4], 11, 1272893353);
+                c = HH(c, d, a, b, x[k + 7], 16, -155497632);
+                b = HH(b, c, d, a, x[k + 10], 23, -1094730640);
+                a = HH(a, b, c, d, x[k + 13], 4, 681279174);
+                d = HH(d, a, b, c, x[k + 0], 11, -358537222);
+                c = HH(c, d, a, b, x[k + 3], 16, -722521979);
+                b = HH(b, c, d, a, x[k + 6], 23, 76029189);
+                a = HH(a, b, c, d, x[k + 9], 4, -640364487);
+                d = HH(d, a, b, c, x[k + 12], 11, -421815835);
+                c = HH(c, d, a, b, x[k + 15], 16, 530742520);
+                b = HH(b, c, d, a, x[k + 2], 23, -995338651);
+                a = II(a, b, c, d, x[k + 0], 6, -198630844);
+                d = II(d, a, b, c, x[k + 7], 10, 1126891415);
+                c = II(c, d, a, b, x[k + 14], 15, -1416354905);
+                b = II(b, c, d, a, x[k + 5], 21, -57434055);
+                a = II(a, b, c, d, x[k + 12], 6, 1700485571);
+                d = II(d, a, b, c, x[k + 3], 10, -1894986606);
+                c = II(c, d, a, b, x[k + 10], 15, -1051523);
+                b = II(b, c, d, a, x[k + 1], 21, -2054922799);
+                a = II(a, b, c, d, x[k + 8], 6, 1873313359);
+                d = II(d, a, b, c, x[k + 15], 10, -30611744);
+                c = II(c, d, a, b, x[k + 6], 15, -1560198380);
+                b = II(b, c, d, a, x[k + 13], 21, 1309151649);
+                a = II(a, b, c, d, x[k + 4], 6, -145523070);
+                d = II(d, a, b, c, x[k + 11], 10, -1120210379);
+                c = II(c, d, a, b, x[k + 2], 15, 718787259);
+                b = II(b, c, d, a, x[k + 9], 21, -343485551);
+                a = addUnsigned(a, AA);
+                b = addUnsigned(b, BB);
+                c = addUnsigned(c, CC);
+                d = addUnsigned(d, DD);
+              }
+              return (wordToHex(a) + wordToHex(b) + wordToHex(c) + wordToHex(d)).toLowerCase();
+            };
+            return md5(str);
           },
         },
         buffer: {
-          from: (...args: any[]) => {
-            if (typeof args[0] === 'string') return new TextEncoder().encode(args[0]);
-            return new Uint8Array(args[0]);
+          from(...args: any[]) {
+            return Buffer.from(...args);
           },
-          bufToString: (buf: any, format: string) => {
-            if (format === 'hex') {
-              return Array.from(buf).map((b: any) => (b as number).toString(16).padStart(2, '0')).join('');
-            }
-            return new TextDecoder().decode(buf);
+          bufToString(buf: any, format: string) {
+            return Buffer.from(buf, 'binary').toString(format);
           },
         },
         zlib: {
           inflate: (buf: any) => {
-            console.log('[Sandbox] inflate called');
-            // 简化实现，实际应该使用zlib解压
-            return new Promise((resolve) => { resolve(buf); });
+            return new Promise((resolve, reject) => {
+              try {
+                const inflated = pako.inflate(buf);
+                resolve(inflated);
+              } catch (err: any) {
+                reject(new Error(err.message));
+              }
+            });
           },
-          deflate: (buf: any) => {
-            console.log('[Sandbox] deflate called');
-            // 简化实现，实际应该使用zlib压缩
-            return new Promise((resolve) => { resolve(buf); });
+          deflate: (data: any) => {
+            return new Promise((resolve, reject) => {
+              try {
+                const deflated = pako.deflate(data);
+                resolve(deflated);
+              } catch (err: any) {
+                reject(new Error(err.message));
+              }
+            });
           },
         },
       };
 
-      // 创建lx对象（完全按照桌面版实现）
-      const lx = {
+      const lx: any = {
         EVENT_NAMES,
         request,
         send,
@@ -418,471 +736,710 @@ export class Sandbox {
         },
         version: '2.0.0',
         env: 'desktop',
+        proxy: {
+          host: '',
+          port: '',
+        },
+        getConsole: () => {
+          return {
+            log: (...args: any[]) => console.log('[Console]', ...args),
+            error: (...args: any[]) => console.error('[Console]', ...args),
+            warn: (...args: any[]) => console.warn('[Console]', ...args),
+            info: (...args: any[]) => console.info('[Console]', ...args),
+          };
+        },
+        createMainWindow: () => {},
+        getSystemFonts: async () => [],
+        sendMessage: (action: string, data: any, status: boolean, message?: string) => {
+          this.sendMessage(action, data, status, message);
+        },
       };
+
+      const __lx_init_error_handler__: any = {
+        sendError: (errorMessage: string) => {
+          console.log('[Sandbox] __lx_init_error_handler__.sendError called with:', errorMessage);
+          onError(errorMessage);
+        },
+      };
+
+      (globalThis as any).__lx_init_error_handler__ = __lx_init_error_handler__;
+
+      // 在脚本上下文中设置错误监听器，参照桌面版实现
+      // 这样可以捕获脚本内部的错误，包括 unhandledrejection
+      const errorHandlerScript = `
+        (() => {
+          // 捕获所有的 Promise rejection
+          const originalThen = Promise.prototype.then;
+          const originalCatch = Promise.prototype.catch;
+          
+          // 阻止所有的 unhandledrejection 事件
+          globalThis.addEventListener('unhandledrejection', (event) => {
+            event.preventDefault();
+          });
+          
+          globalThis.addEventListener('error', (event) => {
+            if (event.isTrusted) {
+              globalThis.__lx_init_error_handler__.sendError(event.message.replace(/^Uncaught\\\\sError:\\\\s/, ''));
+            }
+          });
+          globalThis.addEventListener('unhandledrejection', (event) => {
+            if (!event.isTrusted) return;
+            const message = typeof event.reason === 'string' 
+              ? event.reason 
+              : event.reason?.message ?? String(event.reason);
+            globalThis.__lx_init_error_handler__.sendError(message.replace(/^Error:\\\\s/, ''));
+            event.preventDefault();
+          });
+        })()
+      `;
+      
+      // 先执行错误监听器设置脚本
+      try {
+        const errorHandlerFn = new Function(errorHandlerScript);
+        errorHandlerFn();
+        console.log('[Sandbox] 错误监听器已设置');
+      } catch (error: any) {
+        console.error('[Sandbox] 错误监听器设置失败:', error.message);
+        throw error;
+      }
+      
+      // 不在 Deno 级别设置 unhandledrejection 监听器
+      // 让脚本内部的错误监听器来处理所有的错误
+      // globalThis.addEventListener('unhandledrejection', ...);
+
+      // 不在 Node.js 级别设置 unhandledrejection 监听器
+      // 让脚本内部的错误在脚本上下文中处理
+      // 但是 Deno 会在运行时级别报告未处理的 Promise rejection
+      // 我们需要在脚本执行完成后、初始化完成前，临时添加一个监听器来阻止错误报告
+      // globalThis.addEventListener('unhandledrejection', ...);
 
       (globalThis as any).lx = lx;
 
-      // 设置handleInit函数（完全按照桌面版实现）
-      (globalThis as any)._handleInit = (info: any) => {
-        console.log('[Sandbox] _handleInit called:', info);
-        return new Promise((resolve) => {
-          const sourceInfo = { sources: {} };
+      // 预加载 CommonJS 模块，暴露为全局变量
+      console.log('[Sandbox] 预加载 CommonJS 模块...');
+      
+      const preloadedModules: Record<string, any> = {};
+      
+      // 加载 buffer 模块
+      const BufferFrom = (value: any, encoding?: string): Uint8Array => {
+        if (value instanceof Uint8Array) return value;
+        if (value instanceof ArrayBuffer) return new Uint8Array(value);
+        if (Array.isArray(value)) return new Uint8Array(value);
+        if (typeof value === 'string') {
+          const enc = encoding || 'utf8';
+          if (enc === 'utf8' || enc === 'utf-8') {
+            return new TextEncoder().encode(value);
+          } else if (enc === 'latin1' || enc === 'binary') {
+            const bytes = new Uint8Array(value.length);
+            for (let i = 0; i < value.length; i++) {
+              bytes[i] = value.charCodeAt(i) & 0xff;
+            }
+            return bytes;
+          }
+        }
+        return new Uint8Array(0);
+      };
+      
+      preloadedModules.buffer = {
+        Buffer: {
+          ...Buffer,
+          from: BufferFrom,
+          isBuffer: (obj: any) => obj instanceof Uint8Array,
+          alloc: (size: number, fill?: number) => new Uint8Array(size),
+          allocUnsafe: (size: number) => new Uint8Array(size),
+          concat: (list: Uint8Array[], totalLength?: number) => {
+            if (list.length === 0) return new Uint8Array(0);
+            if (list.length === 1) return list[0];
+            totalLength = totalLength || list.reduce((acc, buf) => acc + buf.length, 0);
+            const result = new Uint8Array(totalLength);
+            let offset = 0;
+            for (const buf of list) {
+              result.set(buf, offset);
+              offset += buf.length;
+            }
+            return result;
+          },
+        },
+      };
+      
+      // 加载 crypto 模块 (使用 Web Crypto API 兼容实现，存放在 _crypto)
+      preloadedModules._crypto = {
+        createCipheriv: (algorithm: string, key: any, iv: any) => {
+          return {
+            update: (data: any) => data,
+            final: () => new Uint8Array(0),
+          };
+        },
+        createDecipheriv: (algorithm: string, key: any, iv: any) => {
+          return {
+            update: (data: any) => data,
+            final: () => new Uint8Array(0),
+          };
+        },
+        publicEncrypt: async (options: any, buffer: Uint8Array) => {
+          const key = await crypto.subtle.importKey(
+            'spki',
+            Buffer.from(options.key),
+            { name: 'RSA-OAEP', hash: 'SHA-1' },
+            false,
+            ['encrypt']
+          );
+          const encrypted = await crypto.subtle.encrypt(
+            { name: 'RSA-OAEP' },
+            key,
+            buffer
+          );
+          return new Uint8Array(encrypted);
+        },
+        privateDecrypt: async (options: any, buffer: Uint8Array) => {
+          const key = await crypto.subtle.importKey(
+            'pkcs8',
+            Buffer.from(options.key),
+            { name: 'RSA-OAEP', hash: 'SHA-1' },
+            false,
+            ['decrypt']
+          );
+          const decrypted = await crypto.subtle.decrypt(
+            { name: 'RSA-OAEP' },
+            key,
+            buffer
+          );
+          return new Uint8Array(decrypted);
+        },
+        randomBytes: (size: number) => {
+          const bytes = new Uint8Array(size);
+          crypto.getRandomValues(bytes);
+          return bytes;
+        },
+        createHash: (algorithm: string) => {
+          return {
+            update: (data: any) => {
+              return {
+                digest: (encoding: string) => {
+                  if (encoding === 'hex') {
+                    const hashBuffer = new TextEncoder().encode(data);
+                    return Array.from(hashBuffer).map(b => b.toString(16).padStart(2, '0')).join('');
+                  }
+                  return data;
+                },
+              };
+            },
+          };
+        },
+        createHmac: (algorithm: string, key: any) => {
+          return {
+            update: (data: any) => {
+              return {
+                digest: (encoding: string) => data,
+              };
+            },
+          };
+        },
+        constants: {
+          RSA_NO_PADDING: 3,
+        },
+      };
+      
+      // 加载 zlib 模块 (使用 pako)
+      preloadedModules.zlib = {
+        gzip: async (data: Uint8Array): Promise<Uint8Array> => {
+          return pako.gzip(data);
+        },
+        gunzip: async (data: Uint8Array): Promise<Uint8Array> => {
+          return pako.ungzip(data);
+        },
+        deflate: async (data: Uint8Array): Promise<Uint8Array> => {
+          return pako.deflate(data);
+        },
+        inflate: async (data: Uint8Array): Promise<Uint8Array> => {
+          return pako.inflate(data);
+        },
+      };
+      
+      // 加载 needle 模块 (HTTP 客户端模拟)
+      preloadedModules.needle = {
+        request: (method: string, url: string, data: any, options: any, callback: any) => {
+          const controller = new AbortController();
+          const timeout = options?.response_timeout || 60000;
+          const followMax = options?.follow_max ?? 5; // 默认跟随 5 次重定向
           
-          try {
-            if (!info || !info.sources) {
-              console.log('[Sandbox] 脚本未提供音源信息，使用默认音源');
-              for (let i = 0; i < allSources.length; i++) {
-                const source = allSources[i];
-                sourceInfo.sources[source] = {
-                  type: 'music',
-                  actions: supportActions[source] || [],
-                  qualitys: supportQualitys[source] || [],
-                };
-              }
-            } else {
-              for (let i = 0; i < allSources.length; i++) {
-                const source = allSources[i];
-                const userSource = info.sources && info.sources[source];
-                if (!userSource || userSource.type !== 'music') continue;
-                const qualitys = supportQualitys[source];
-                const actions = supportActions[source];
-                sourceInfo.sources[source] = {
-                  type: 'music',
-                  actions: actions.filter((a: string) => userSource.actions.includes(a)),
-                  qualitys: qualitys.filter((q: string) => userSource.qualitys.includes(q)),
-                };
-              }
+          const timeoutId = setTimeout(() => {
+            controller.abort();
+          }, timeout);
+          
+          // 处理 headers - 移除 GET 请求中的 Content-Type
+          let headers: any = { ...options?.headers } || {};
+          if (method.toLowerCase() === 'get' && headers['Content-Type']) {
+            delete headers['Content-Type'];
+          }
+          
+          const doFetch = async (currentUrl: string, redirectCount: number): Promise<Response> => {
+            const fetchOptions: any = {
+              method,
+              signal: controller.signal,
+              headers,
+              redirect: 'manual', // 手动处理重定向以支持 follow_max
+            };
+            
+            if (data && !options?.json) {
+              fetchOptions.body = data;
+              fetchOptions.headers = { ...fetchOptions.headers, 'Content-Type': 'application/x-www-form-urlencoded' };
+            } else if (data) {
+              fetchOptions.body = JSON.stringify(data);
+              fetchOptions.headers = { ...fetchOptions.headers, 'Content-Type': 'application/json' };
             }
             
-            console.log('[Sandbox] 注册的音源:', Object.keys(sourceInfo.sources));
-            (globalThis as any)._registeredSources = sourceInfo.sources;
-            (globalThis as any)._sources = sourceInfo.sources;
-            resolve();
-          } catch (error) {
-            console.error('[Sandbox] 初始化失败:', error);
-            resolve();
-          }
-        });
-      };
-
-      // 设置handleUpdateAlert函数
-      (globalThis as any)._handleUpdateAlert = (data: any) => {
-        console.log('[Sandbox] _handleUpdateAlert called:', data);
-        return Promise.resolve();
-      };
-
-      // 设置全局对象
-      (globalThis as any).globalThis = globalThis;
-      (globalThis as any).window = globalThis;
-
-      // 添加 require 函数模拟（用于支持 Node.js 风格的模块加载）
-      (globalThis as any).require = (moduleName: string) => {
-        console.log('[Sandbox] require called:', moduleName);
-        switch (moduleName) {
-          case 'crypto':
-            return {
-              createHash: (algorithm: string) => ({
-                update: (data: string) => ({
-                  digest: (encoding: string) => {
-                    const hash = new TextEncoder().encode(data);
-                    const hashArray = Array.from(hash);
-                    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-                    return hashHex;
-                  }
-                })
-              })
-            };
-          case 'buffer':
-            return { Buffer };
-          default:
-            console.log('[Sandbox] Unknown module:', moduleName);
-            return {};
-        }
-      };
-
-      // 添加 regenerator runtime 支持（用于支持 async/await）
-      const mark = (genFun: any) => {
-        if (Object.setPrototypeOf) {
-          Object.setPrototypeOf(genFun, GeneratorFunctionPrototype);
-        } else {
-          genFun.__proto__ = GeneratorFunctionPrototype;
-        }
-        genFun.prototype = Object.create(Gp);
-        return genFun;
-      };
-
-      const wrap = (innerFn: any, outerFn: any, self: any, tryLocsList: any) => {
-        const protoGenerator = outerFn && outerFn.prototype instanceof Generator ? outerFn : Generator;
-        const generator = Object.create(protoGenerator.prototype);
-        const context = new Context(tryLocsList || []);
-        generator._invoke = makeInvokeMethod(innerFn, self, context);
-        return generator;
-      };
-
-      const tryCatch = (fn: any, obj: any, arg: any) => {
-        try {
-          return { type: "normal", arg: fn.call(obj, arg) };
-        } catch (err) {
-          return { type: "throw", arg: err };
-        }
-      };
-
-      const Generator = function() {};
-      const GeneratorFunction = function GeneratorFunction() {};
-      const GeneratorFunctionPrototype = GeneratorFunction.prototype;
-      const IteratorPrototype = {};
-      const Gp = GeneratorFunctionPrototype.prototype = Generator.prototype = Object.create(IteratorPrototype);
-      Gp.constructor = GeneratorFunctionPrototype;
-      GeneratorFunctionPrototype.constructor = GeneratorFunction;
-      GeneratorFunction.displayName = "GeneratorFunction";
-
-      const defineIteratorMethods = (prototype: any) => {
-        ["next", "throw", "return"].forEach((method) => {
-          prototype[method] = function(arg: any) {
-            return this._invoke(method, arg);
+            const response = await fetch(currentUrl, fetchOptions);
+            
+            // 处理重定向
+            if (response.status >= 300 && response.status < 400 && response.headers.has('location')) {
+              if (redirectCount >= followMax) {
+                throw new Error(`Maximum redirect count (${followMax}) exceeded`);
+              }
+              const newUrl = response.headers.get('location')!;
+              // 解析相对 URL
+              const resolvedUrl = newUrl.startsWith('http') ? newUrl : new URL(newUrl, currentUrl).href;
+              return doFetch(resolvedUrl, redirectCount + 1);
+            }
+            
+            return response;
           };
-        });
+          
+          doFetch(url, 0)
+            .then(async (response) => {
+              clearTimeout(timeoutId);
+              const responseBody = await response.arrayBuffer();
+              const bodyStr = new TextDecoder().decode(responseBody);
+              let body = bodyStr;
+              try { body = JSON.parse(bodyStr); } catch (e) {}
+              
+              const respObj = {
+                statusCode: response.status,
+                statusMessage: response.statusText,
+                headers: Object.fromEntries(response.headers.entries()),
+                bytes: responseBody.byteLength,
+                raw: Buffer.from(responseBody),
+                body,
+              };
+              
+              if (callback) {
+                callback(null, respObj, body);
+              }
+            })
+            .catch((error) => {
+              clearTimeout(timeoutId);
+              if (callback) {
+                callback(error, null, null);
+              }
+            });
+          
+          return { aborted: false };
+        },
       };
-      defineIteratorMethods(Gp);
-
-      const AsyncIterator = function() {};
-      AsyncIterator.prototype = Gp;
-
-      const asyncIterator = (innerFn: any, outerFn: any, self: any) => {
-        const iter = wrap(innerFn, outerFn, self, []);
-        return new Promise((resolve, reject) => {
-          const step = () => {
-            const result = iter.next();
-            if (result.done) {
-              resolve(result.value);
-            } else {
-              Promise.resolve(result.value).then(
-                (val) => { step(); },
-                (err) => { iter.throw(err); step(); }
-              );
-            }
-          };
-          step();
-        });
+      
+      // 加载 tunnel 模块 (代理支持)
+      preloadedModules.tunnel = {
+        httpOverHttp: (options: any) => {
+          return (req: any) => req;
+        },
+        httpsOverHttp: (options: any) => {
+          return (req: any) => req;
+        },
       };
-
-      const makeInvokeMethod = (innerFn: any, self: any, context: any) => {
-        let state = "suspendedStart";
-        return function(method: string, arg: any) {
-          if (state === "completed") {
-            throw new TypeError("Generator is already running");
-          }
-          if (state === "suspendedYield") {
-            state = "executing";
-          }
-          if (state === "executing") {
-            throw new TypeError("Generator is already running");
-          }
-          state = "executing";
-          const record = tryCatch(innerFn, self, context);
-          if (record.type === "normal") {
-            state = "completed";
-            if (record.arg === ContinueSentinel) {
-              context.next = context.sent;
-            } else {
-              context.sent = record.arg;
-            }
-            return { value: record.arg, done: false };
-          } else if (record.type === "throw") {
-            state = "completed";
-            throw record.arg;
-          }
-        };
-      };
-
-      const ContinueSentinel = {};
-
-      const Context = function(tryLocsList: any) {
-        this.tryEntries = [{ tryLoc: "root" }];
-        tryLocsList.forEach((tryLoc: any) => {
-          this.tryEntries.push({ tryLoc: tryLoc });
-        });
-        this.reset(true);
-      };
-
-      Context.prototype.reset = function(skipTemp: any) {
-        this.prev = 0;
-        this.next = 0;
-        this.sent = this._sent = undefined;
-        this.done = false;
-        this.delegate = null;
-        this.method = "next";
-        this.arg = undefined;
-        this.tryEntries.forEach((tryEntry: any) => {
-          tryEntry.completion = { type: "normal", arg: undefined };
-        });
-        if (skipTemp) {
-          for (let i = 0; i < this.tryEntries.length; i++) {
-            const entry = this.tryEntries[i];
-            if (entry.tryLoc === "root") {
-              this.next = entry.afterLoc;
-              break;
-            }
-          }
+      
+      // 暴露预加载的模块到全局作用域
+      // 注意：crypto 是只读的全局属性，不能直接覆盖，只使用 _crypto 作为别名
+      (globalThis as any).buffer = preloadedModules.buffer;
+      (globalThis as any)._crypto = preloadedModules._crypto;
+      (globalThis as any).zlib = preloadedModules.zlib;
+      (globalThis as any).needle = preloadedModules.needle;
+      (globalThis as any).tunnel = preloadedModules.tunnel;
+      
+      console.log('[Sandbox] CommonJS 模块预加载完成');
+      
+      // 添加同步 require 函数 (直接返回预加载的模块)
+      const require = (moduleName: string): any => {
+        console.log('[Sandbox require] Called with module:', moduleName);
+        
+        // 处理 crypto 模块名映射 (返回 _crypto)
+        if (moduleName === 'crypto') {
+          return preloadedModules._crypto;
         }
+        
+        // 返回预加载的模块
+        if (preloadedModules[moduleName]) {
+          return preloadedModules[moduleName];
+        }
+        
+        // 对于其他模块，返回 undefined
+        console.log('[Sandbox require] Module not preloaded:', moduleName);
+        return undefined;
       };
+      
+      (globalThis as any).require = require;
+      console.log('[Sandbox] CommonJS require polyfill 已添加 (同步模式)');
 
-      (globalThis as any).regeneratorRuntime = {
-        wrap: wrap,
-        mark: mark,
-        async: asyncIterator,
-      };
-      (globalThis as any)._regeneratorRuntime = (globalThis as any).regeneratorRuntime;
-
-      // 执行脚本
       console.log('[Sandbox] 开始执行脚本...');
-      console.log('[Sandbox] 脚本代码长度:', this.scriptInfo.rawScript.length);
+      console.log('[Sandbox] proxy.host:', proxy.host);
+      console.log('[Sandbox] proxy.port:', proxy.port);
+      console.log('[Sandbox] lx.proxy.host:', lx.proxy.host);
+      console.log('[Sandbox] lx.proxy.port:', lx.proxy.port);
       
-      const startTime = Date.now();
+      const initEnv = () => {
+        lx.proxy.host = proxy.host;
+        lx.proxy.port = proxy.port;
+        lx.env = 'desktop';
+        lx.onWebhook = (listener: any) => {
+          console.log('[Sandbox] lx.onWebhook called');
+          globalThis.webhookListener = listener;
+        };
+        console.log('[Sandbox] initEnv completed');
+      };
       
+      initEnv();
+      console.log('[Sandbox] initEnv called');
+      console.log('[Sandbox] After initEnv, lx.proxy.host:', lx.proxy.host);
+      console.log('[Sandbox] After initEnv, lx.proxy.port:', lx.proxy.port);
+      
+      const scriptFn = new Function('window', 'self', 'globalThis', 'lx', 'events', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'atob', 'btoa', 'buffer', 'pako', '_crypto', 'fetch', this.scriptInfo.rawScript);
+      
+      // 完全参照桌面版实现，脚本执行错误被忽略
+      // 桌面版使用: webFrame.executeJavaScript(userApi.script).catch(_ => _)
       try {
-        const scriptFn = new Function(this.scriptInfo.rawScript);
-        scriptFn();
+        scriptFn(globalThis.window, globalThis, globalThis, lx, events, globalThis.setTimeout, globalThis.clearTimeout, globalThis.setInterval, globalThis.clearInterval, lx.atob, lx.btoa, lx.buffer, lx.pako, preloadedModules._crypto, fetch);
         console.log('[Sandbox] 脚本执行完成');
-      } catch (evalError: any) {
-        console.error('[Sandbox] 脚本代码执行错误:', String(evalError));
-        if (evalError?.stack) {
-          console.error('[Sandbox] 错误堆栈:', String(evalError.stack));
-        }
+      } catch (error: any) {
+        console.error('[Sandbox] 脚本执行失败:', error.message);
+        // 忽略脚本执行错误，参照桌面版 .catch(_ => _)
+      }
+
+      console.log('[Sandbox] isInitedApi after script:', isInitedApi);
+      
+      // 等待最多 10 秒，让脚本主动调用 lx.send('inited')
+      // 如果 10 秒内脚本没有调用，我们在超时时主动调用
+      if (!isInitedApi) {
+        console.log('[Sandbox] 等待脚本主动初始化 (最多 10 秒)...');
+        
+        await new Promise<void>((resolve) => {
+          const timeoutId = setTimeout(async () => {
+            clearInterval(checkInterval);
+            console.log('[Sandbox] 等待超时，主动完成初始化...');
+            
+            // 使用脚本支持的默认音源
+            const defaultSources = {
+              kw: { type: 'music', actions: ['musicUrl', 'lyric', 'pic'], qualitys: ['128k', '320k', 'flac'] },
+              kg: { type: 'music', actions: ['musicUrl', 'lyric', 'pic'], qualitys: ['128k', '320k', 'flac'] },
+              tx: { type: 'music', actions: ['musicUrl', 'lyric', 'pic'], qualitys: ['128k', '320k', 'flac'] },
+              wy: { type: 'music', actions: ['musicUrl', 'lyric', 'pic'], qualitys: ['128k', '320k', 'flac'] },
+              mg: { type: 'music', actions: ['musicUrl', 'lyric', 'pic'], qualitys: ['128k', '320k', 'flac'] },
+            };
+            
+            // 主动调用初始化，注册默认音源
+            try {
+              await send('inited', { sources: defaultSources });
+              console.log('[Sandbox] 主动初始化成功，已注册默认音源');
+            } catch (err: any) {
+              console.error('[Sandbox] 主动初始化失败:', err.message);
+            }
+            
+            resolve();
+          }, 10000);
+          
+          // 定期检查 isInitedApi 状态
+          const checkInterval = setInterval(() => {
+            if (isInitedApi) {
+              clearTimeout(timeoutId);
+              clearInterval(checkInterval);
+              console.log('[Sandbox] 脚本已主动初始化');
+              resolve();
+            }
+          }, 100);
+        });
+      } else {
+        console.log('[Sandbox] 脚本已主动初始化');
       }
       
-      const endTime = Date.now();
-      console.log('[Sandbox] 脚本代码执行完成, 耗时:', (endTime - startTime) + 'ms');
+      // 等待完成后，检查初始化状态
+      if (!isInitedApi) {
+        // 这不应该发生，因为超时应该已经主动初始化了
+        throw new Error('Initialization failed');
+      }
+      
+      // 设置 request handler
+      if (events.request) {
+        this.requestHandler = events.request;
+        console.log('[Sandbox] Sandbox initialization completed successfully');
+        console.log('[Sandbox] Registered sources:', Array.from(this.registeredSources.keys()));
+      } else {
+        console.error('[Sandbox] Request handler not set');
+        throw new Error('Request handler not set');
+      }
 
-      // 检查脚本是否正确初始化
-      setTimeout(() => {
-        console.log('[Sandbox] 检查脚本初始化状态...');
-        console.log('[Sandbox] isInitedApi:', (globalThis as any).isInitedApi);
-        console.log('[Sandbox] initError:', (globalThis as any).initError);
-        console.log('[Sandbox] _sources:', (globalThis as any)._sources);
-        console.log('[Sandbox] _registeredSources:', (globalThis as any)._registeredSources);
-        console.log('[Sandbox] events.request:', typeof (globalThis as any).events?.request);
-        
-        // 如果脚本没有正确初始化，尝试手动触发初始化
-        if (!(globalThis as any).isInitedApi && !(globalThis as any).initError) {
-          console.log('[Sandbox] 尝试手动触发脚本初始化...');
-          try {
-            if ((globalThis as any)._handleInit) {
-              (globalThis as any)._handleInit({
-                sources: {
-                  kw: { type: 'music', actions: ['musicUrl'], qualitys: ['128k', '320k', 'flac', 'flac24bit'] },
-                  kg: { type: 'music', actions: ['musicUrl'], qualitys: ['128k', '320k', 'flac', 'flac24bit'] },
-                  tx: { type: 'music', actions: ['musicUrl'], qualitys: ['128k', '320k', 'flac', 'flac24bit'] },
-                  wy: { type: 'music', actions: ['musicUrl'], qualitys: ['128k', '320k', 'flac', 'flac24bit'] },
-                  mg: { type: 'music', actions: ['musicUrl'], qualitys: ['128k', '320k', 'flac', 'flac24bit'] },
-                  local: { type: 'music', actions: ['musicUrl', 'lyric', 'pic'], qualitys: [] }
-                }
-              }).then(() => {
-                console.log('[Sandbox] 手动初始化完成');
-                (globalThis as any).isInitedApi = true;
-                (globalThis as any).isInited = true;
-              }).catch((error: any) => {
-                console.error('[Sandbox] 手动初始化失败:', error);
-                (globalThis as any).initError = error.message;
-              });
-            }
-          } catch (error: any) {
-            console.error('[Sandbox] 手动初始化异常:', error);
-          }
-        }
-      }, 1000);
-
-      this.isInitialized = true;
-      console.log('[Sandbox] 脚本初始化完成:', this.scriptInfo.name);
-      console.log('[Sandbox] 已注册音源:', JSON.stringify((globalThis as any)._sources ? Object.keys((globalThis as any)._sources) : []));
-      console.log('[Sandbox] events.request 是否存在:', typeof (globalThis as any).events?.request);
-      console.log('[Sandbox] lx.send 是否存在:', typeof (globalThis as any).lx?.send);
-      console.log('[Sandbox] lx.on 是否存在:', typeof (globalThis as any).lx?.on);
-      console.log('[Sandbox] initError:', (globalThis as any).initError);
-      console.log('[Sandbox] isInitedApi:', (globalThis as any).isInitedApi);
-    } catch (error) {
-      console.error('Sandbox 初始化失败: ' + this.scriptInfo.name, error);
+    } catch (error: any) {
+      console.error('[Sandbox] 初始化失败:', error.message);
+      this.isInitialized = false;
+      this.initError = error.message;
+      throw error; // 重新抛出错误，让上层知道初始化失败
     }
   }
 
-  private handleInit(info: any): Promise<void> {
-    console.log('[Sandbox] handleInit called:', info);
-    return new Promise((resolve) => {
-      const sourceInfo = { sources: {} };
-      const allSources = ['kw', 'kg', 'tx', 'wy', 'mg', 'local'];
-      const supportQualitys = {
-        kw: ['128k', '320k', 'flac', 'flac24bit'],
-        kg: ['128k', '320k', 'flac', 'flac24bit'],
-        tx: ['128k', '320k', 'flac', 'flac24bit'],
-        wy: ['128k', '320k', 'flac', 'flac24bit'],
-        mg: ['128k', '320k', 'flac', 'flac24bit'],
-        local: [],
-      };
-      const supportActions = {
-        kw: ['musicUrl'],
-        kg: ['musicUrl'],
-        tx: ['musicUrl'],
-        wy: ['musicUrl'],
-        mg: ['musicUrl'],
-        xm: ['musicUrl'],
-        local: ['musicUrl', 'lyric', 'pic'],
-      };
+  async handleMusicUrlRequest(request: MusicUrlRequest): Promise<MusicUrlResponse> {
+    console.log('\n========== [Sandbox] handleMusicUrlRequest 开始 ==========');
+    console.log('[Sandbox] isInitialized:', this.isInitialized);
+    console.log('[Sandbox] requestHandler exists:', !!this.requestHandler);
+    console.log('[Sandbox] request:', JSON.stringify(request, null, 2));
 
-      try {
-        if (!info || !info.sources) {
-          console.log('[Sandbox] 脚本未提供音源信息，使用默认音源');
-          for (let i = 0; i < allSources.length; i++) {
-            const source = allSources[i];
-            sourceInfo.sources[source] = {
-              type: 'music',
-              actions: supportActions[source] || [],
-              qualitys: supportQualitys[source] || [],
-            };
-          }
-        } else {
-          for (let i = 0; i < allSources.length; i++) {
-            const source = allSources[i];
-            const userSource = info.sources && info.sources[source];
-            if (!userSource || userSource.type !== 'music') continue;
-            const qualitys = supportQualitys[source];
-            const actions = supportActions[source];
-            sourceInfo.sources[source] = {
-              type: 'music',
-              actions: actions.filter((a: string) => userSource.actions.includes(a)),
-              qualitys: qualitys.filter((q: string) => userSource.qualitys.includes(q)),
-            };
-          }
-        }
-        
-        console.log('[Sandbox] 注册的音源:', Object.keys(sourceInfo.sources));
-        (globalThis as any)._registeredSources = sourceInfo.sources;
-        (globalThis as any)._sources = sourceInfo.sources;
-        resolve();
-      } catch (error) {
-        console.error('[Sandbox] 初始化失败:', error);
-        resolve();
-      }
-    });
-  }
-
-  private handleUpdateAlert(data: any): Promise<void> {
-    console.log('[Sandbox] handleUpdateAlert called:', data);
-    return Promise.resolve();
-  }
-
-  async handleRequest(data: MusicUrlRequest): Promise<MusicUrlResponse | null> {
-    console.log('[Sandbox] handleRequest called:', data);
-    
     if (!this.isInitialized) {
-      console.log('[Sandbox] 脚本未初始化');
-      return null;
+      console.error('[Sandbox] 抛出异常: Script not initialized');
+      console.log('========== [Sandbox] handleMusicUrlRequest 结束 ==========\n');
+      throw new Error('Script not initialized');
+    }
+
+    if (!this.requestHandler) {
+      console.error('[Sandbox] 抛出异常: Request handler not set');
+      console.log('========== [Sandbox] handleMusicUrlRequest 结束 ==========\n');
+      throw new Error('Request handler not set');
     }
 
     try {
-      const handler = (globalThis as any).events?.request;
-      if (!handler) {
-        console.log('[Sandbox] Request event is not defined');
-        throw new Error('Request event is not defined');
+      console.log('[Sandbox] 调用 requestHandler...');
+      const result = await this.requestHandler({
+        source: request.source,
+        action: 'musicUrl',
+        info: {
+          type: request.info.type,
+          musicInfo: request.info.musicInfo,
+        },
+      });
+
+      console.log('[Sandbox] requestHandler 返回:', JSON.stringify(result, null, 2));
+
+      if (typeof result !== 'string') {
+        console.error('[Sandbox] 抛出异常: Invalid response format');
+        console.log('========== [Sandbox] handleMusicUrlRequest 结束 ==========\n');
+        throw new Error('Invalid response format');
       }
 
-      console.log('[Sandbox] 调用脚本请求处理器...');
-      const result = await handler({ source: data.source, action: data.action, info: data.info });
-      console.log('[Sandbox] 脚本返回结果:', result);
-
-      if (data.action === 'musicUrl') {
-        if (typeof result !== 'string' || result.length > 2048 || !/^https?:/.test(result)) {
-          console.log('[Sandbox] 无效的音乐URL:', result);
-          throw new Error('Invalid music URL');
-        }
-        return {
-          source: data.source,
-          action: data.action,
-          data: {
-            type: data.info.type,
-            url: result,
-          },
-        };
-      } else if (data.action === 'lyric') {
-        if (typeof result !== 'object' || typeof result.lyric !== 'string') {
-          console.log('[Sandbox] 无效的歌词数据:', result);
-          throw new Error('Invalid lyric data');
-        }
-        if (result.lyric.length > 51200) {
-          console.log('[Sandbox] 歌词过长:', result.lyric.length);
-          throw new Error('Lyric too long');
-        }
-        return {
-          source: data.source,
-          action: data.action,
-          data: {
-            type: 'lyric',
-            lyric: result.lyric,
-            tlyric: (typeof result.tlyric == 'string' && result.tlyric.length < 5120) ? result.tlyric : null,
-            rlyric: (typeof result.rlyric == 'string' && result.rlyric.length < 5120) ? result.rlyric : null,
-            lxlyric: (typeof result.lxlyric == 'string' && result.lxlyric.length < 8192) ? result.lxlyric : null,
-          },
-        };
-      } else if (data.action === 'pic') {
-        if (typeof result !== 'string' || result.length > 2048 || !/^https?:/.test(result)) {
-          console.log('[Sandbox] 无效的图片URL:', result);
-          throw new Error('Invalid pic URL');
-        }
-        return {
-          source: data.source,
-          action: data.action,
-          data: {
-            type: 'pic',
-            url: result,
-          },
-        };
+      if (!/^https?:\/\//.test(result)) {
+        console.error('[Sandbox] 抛出异常: Invalid URL format');
+        console.log('========== [Sandbox] handleMusicUrlRequest 结束 ==========\n');
+        throw new Error('Invalid URL format');
       }
 
-      return null;
-    } catch (error) {
-      console.error('[Sandbox] Request 处理失败:', error);
-      switch (data.action) {
-        case 'musicUrl':
-          return { source: data.source, action: data.action, data: { type: 'musicUrl', url: '' } };
-        case 'lyric':
-          return { source: data.source, action: data.action, data: { type: 'lyric', lyric: '', tlyric: null, rlyric: null, lxlyric: null } };
-        case 'pic':
-          return { source: data.source, action: data.action, data: { type: 'pic', url: '' } };
-        default:
-          return null;
-      }
+      const response = {
+        source: request.source,
+        action: 'musicUrl',
+        data: {
+          type: request.info.type,
+          url: result,
+        },
+      };
+      console.log('[Sandbox] 成功返回:', JSON.stringify(response, null, 2));
+      console.log('========== [Sandbox] handleMusicUrlRequest 结束 ==========\n');
+      return response;
+    } catch (error: any) {
+      console.error('[Sandbox] handleMusicUrlRequest 捕获到异常:', error.message);
+      console.error('[Sandbox] 异常堆栈:', error.stack);
+      console.log('========== [Sandbox] handleMusicUrlRequest 结束 ==========\n');
+      throw error;
     }
   }
 
-  async request(data: MusicUrlRequest): Promise<MusicUrlResponse | null> {
-    return this.handleRequest(data);
-  }
-
-  getRegisteredSources(): string[] {
-    const sources = (globalThis as any)._registeredSources;
-    if (sources) return Object.keys(sources);
-    return ['kw', 'kg', 'tx', 'wy', 'mg'];
+  getRegisteredSources(): Map<string, any> {
+    return this.registeredSources;
   }
 
   getRegisteredSourceList(): string[] {
-    return this.getRegisteredSources();
-  }
-
-  supportsSource(source: string): boolean {
-    const sources = (globalThis as any)._sources;
-    if (sources) return source in sources;
-    return ['kw', 'kg', 'tx', 'wy', 'mg'].includes(source);
-  }
-
-  setSourceHandler(source: string, handler: any): void {
-    this.registeredSources.set(source, handler);
-  }
-
-  async terminate(): Promise<void> {
-    this.isInitialized = false;
-    this.registeredSources.clear();
+    return Array.from(this.registeredSources.keys());
   }
 
   isReady(): boolean {
     return this.isInitialized;
+  }
+
+  supportsSource(source: string): boolean {
+    return this.registeredSources.has(source);
+  }
+
+  setSourceHandler(source: string, handler: Function): void {
+    this.requestHandler = handler;
+  }
+
+  async request(request: MusicUrlRequest): Promise<MusicUrlResponse> {
+    console.log('\n========== [Sandbox] request 开始 ==========');
+    console.log('[Sandbox] scriptInfo.name:', this.scriptInfo.name);
+    console.log('[Sandbox] isInitialized:', this.isInitialized);
+    console.log('[Sandbox] requestHandler exists:', !!this.requestHandler);
+    console.log('[Sandbox] request.source:', request.source);
+    console.log('[Sandbox] request.action:', request.action);
+    console.log('[Sandbox] request.info.type:', request.info?.type);
+    console.log('[Sandbox] request.info.musicInfo:', JSON.stringify(request.info?.musicInfo, null, 2));
+
+    if (!this.isInitialized) {
+      console.error('[Sandbox] 抛出异常: Script not initialized');
+      console.log('========== [Sandbox] request 结束 ==========\n');
+      throw new Error('Script not initialized');
+    }
+
+    if (!this.requestHandler) {
+      console.error('[Sandbox] 抛出异常: Request handler not set');
+      console.log('========== [Sandbox] request 结束 ==========\n');
+      throw new Error('Request handler not set');
+    }
+
+    console.log('[Sandbox] 即将调用 this.requestHandler...');
+    console.log('[Sandbox] requestHandler 参数 - source:', request.source);
+    console.log('[Sandbox] requestHandler 参数 - action:', request.action);
+    console.log('[Sandbox] requestHandler 参数 - info:', JSON.stringify(request.info, null, 2));
+
+    let response: any;
+    try {
+      console.log('[Sandbox] 开始等待 requestHandler 返回...');
+      response = await this.requestHandler({
+        source: request.source,
+        action: request.action,
+        info: request.info,
+      });
+      console.log('[Sandbox] requestHandler 执行完成');
+      console.log('[Sandbox] requestHandler response 类型:', typeof response);
+      console.log('[Sandbox] requestHandler response:', JSON.stringify(response, null, 2));
+    } catch (error: any) {
+      console.error('[Sandbox] requestHandler 抛出异常');
+      console.error('[Sandbox] 异常消息:', error.message);
+      console.error('[Sandbox] 异常堆栈:', error.stack);
+      console.error('[Sandbox] 即将重新抛出异常');
+      console.log('========== [Sandbox] request 结束 ==========\n');
+      throw error;
+    }
+
+    console.log('[Sandbox] 开始处理 response, action:', request.action);
+    let resultData: MusicUrlData | LyricData | PicData;
+
+    switch (request.action) {
+      case 'musicUrl':
+        console.log('[Sandbox] 进入 musicUrl 处理分支');
+        console.log('[Sandbox] response 类型:', typeof response);
+        console.log('[Sandbox] response 长度:', response?.length);
+        console.log('[Sandbox] response 值:', response);
+        if (typeof response !== 'string') {
+          console.error('[Sandbox] 抛出异常: response 不是字符串');
+          console.error('[Sandbox] response 类型:', typeof response);
+          console.error('[Sandbox] 即将抛出 Invalid musicUrl response');
+          console.log('========== [Sandbox] request 结束 ==========\n');
+          throw new Error('Invalid musicUrl response: response is not a string');
+        }
+        if (response.length > 2048) {
+          console.error('[Sandbox] 抛出异常: response 长度超过 2048');
+          console.error('[Sandbox] response 长度:', response.length);
+          console.error('[Sandbox] 即将抛出 Invalid musicUrl response');
+          console.log('========== [Sandbox] request 结束 ==========\n');
+          throw new Error('Invalid musicUrl response: response too long');
+        }
+        if (!/^https?:/.test(response)) {
+          console.error('[Sandbox] 抛出异常: response 不是有效的 HTTP URL');
+          console.error('[Sandbox] response:', response);
+          console.error('[Sandbox] 即将抛出 Invalid musicUrl response');
+          console.log('========== [Sandbox] request 结束 ==========\n');
+          throw new Error('Invalid musicUrl response: not a valid http(s) url');
+        }
+        console.log('[Sandbox] musicUrl response 验证通过');
+        resultData = {
+          type: request.info?.type || 'music',
+          url: response,
+        };
+        console.log('[Sandbox] musicUrl resultData:', JSON.stringify(resultData, null, 2));
+        break;
+
+      case 'lyric':
+        console.log('[Sandbox] 进入 lyric 处理分支');
+        console.log('[Sandbox] response 类型:', typeof response);
+        console.log('[Sandbox] response:', JSON.stringify(response, null, 2));
+        if (typeof response !== 'object' || response === null) {
+          console.error('[Sandbox] 抛出异常: response 不是对象');
+          console.error('[Sandbox] 即将抛出 Invalid lyric response');
+          console.log('========== [Sandbox] request 结束 ==========\n');
+          throw new Error('Invalid lyric response: response is not an object');
+        }
+        if (typeof response.lyric !== 'string') {
+          console.error('[Sandbox] 抛出异常: response.lyric 不是字符串');
+          console.error('[Sandbox] response.lyric 类型:', typeof response.lyric);
+          console.error('[Sandbox] 即将抛出 Invalid lyric response');
+          console.log('========== [Sandbox] request 结束 ==========\n');
+          throw new Error('Invalid lyric response: lyric is not a string');
+        }
+        console.log('[Sandbox] lyric response 验证通过');
+        resultData = {
+          type: 'lyric',
+          lyric: response.lyric,
+          tlyric: (typeof response.tlyric === 'string' && response.tlyric.length < 5120) ? response.tlyric : null,
+          rlyric: (typeof response.rlyric === 'string' && response.rlyric.length < 5120) ? response.rlyric : null,
+          lxlyric: (typeof response.lxlyric === 'string' && response.lxlyric.length < 8192) ? response.lxlyric : null,
+        };
+        console.log('[Sandbox] lyric resultData:', JSON.stringify(resultData, null, 2));
+        break;
+
+      case 'pic':
+        console.log('[Sandbox] 进入 pic 处理分支');
+        console.log('[Sandbox] response 类型:', typeof response);
+        console.log('[Sandbox] response 长度:', response?.length);
+        if (typeof response !== 'string') {
+          console.error('[Sandbox] 抛出异常: response 不是字符串');
+          console.error('[Sandbox] 即将抛出 Invalid pic response');
+          console.log('========== [Sandbox] request 结束 ==========\n');
+          throw new Error('Invalid pic response: response is not a string');
+        }
+        if (response.length > 2048) {
+          console.error('[Sandbox] 抛出异常: response 长度超过 2048');
+          console.error('[Sandbox] 即将抛出 Invalid pic response');
+          console.log('========== [Sandbox] request 结束 ==========\n');
+          throw new Error('Invalid pic response: response too long');
+        }
+        if (!/^https?:/.test(response)) {
+          console.error('[Sandbox] 抛出异常: response 不是有效的 HTTP URL');
+          console.error('[Sandbox] 即将抛出 Invalid pic response');
+          console.log('========== [Sandbox] request 结束 ==========\n');
+          throw new Error('Invalid pic response: not a valid http(s) url');
+        }
+        console.log('[Sandbox] pic response 验证通过');
+        resultData = {
+          type: 'pic',
+          url: response,
+        };
+        console.log('[Sandbox] pic resultData:', JSON.stringify(resultData, null, 2));
+        break;
+
+      default:
+        console.error('[Sandbox] 进入 default 分支，不支持的 action:', request.action);
+        console.error('[Sandbox] 抛出异常: Unsupported action');
+        console.log('========== [Sandbox] request 结束 ==========\n');
+        throw new Error(`Unsupported action: ${request.action}`);
+    }
+
+    console.log('[Sandbox] 构建最终 result');
+    const result = {
+      source: request.source,
+      action: request.action,
+      data: resultData,
+    };
+    console.log('[Sandbox] 最终 result:', JSON.stringify(result, null, 2));
+    console.log('[Sandbox] 成功返回 result');
+    console.log('========== [Sandbox] request 结束 ==========\n');
+    return result;
+  }
+
+  async terminate(): Promise<void> {
+    console.log('[Sandbox] 终止沙箱:', this.scriptInfo.name);
+    
+    this.registeredSources.clear();
+    this.requestCallbacks.forEach((callback, requestKey) => {
+      callback.reject(new Error('Sandbox terminated'));
+    });
+    this.requestCallbacks.clear();
+    this.requestHandler = null;
+    this.isInitialized = false;
+    this.initError = 'Sandbox terminated';
+    this.initResult = null;
+    
+    console.log('[Sandbox] 沙箱已终止:', this.scriptInfo.name);
   }
 }

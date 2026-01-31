@@ -84,12 +84,7 @@ export class ScriptEngine {
       if (registeredSources.length > 0) {
         finalSources = registeredSources;
       } else {
-        const fallbackSources = this.getFallbackSourcesForScript(scriptInfo);
-        if (fallbackSources.length > 0) {
-          finalSources = fallbackSources;
-        } else {
-          finalSources = [];
-        }
+        finalSources = [];
       }
       
       if (finalSources.length > 0) {
@@ -112,8 +107,9 @@ export class ScriptEngine {
       this.activeScripts.set(scriptInfo.id, scriptInfo);
 
       return true;
-    } catch (error) {
-      return false;
+    } catch (error: any) {
+      console.error(`[ScriptEngine] 加载脚本失败: ${scriptInfo.name}`, error?.message || error);
+      throw error; // 重新抛出错误，让上层知道初始化失败
     }
   }
 
@@ -127,32 +123,69 @@ export class ScriptEngine {
   }
 
   async getMusicUrl(request: MusicUrlRequest): Promise<MusicUrlResponse> {
+    console.log('\n========== [ScriptEngine] getMusicUrl 开始 ==========');
+    console.log('[ScriptEngine] source:', request.source);
+    console.log('[ScriptEngine] action:', request.action);
+   // console.log('[ScriptEngine] info:', JSON.stringify(request.info, null, 2));
+    console.log('[ScriptEngine] 可用的 sandboxes:', Array.from(this.sandboxes.keys()));
+    console.log('[ScriptEngine] 可用的 activeScripts:', Array.from(this.activeScripts.keys()));
+
     const { source, info } = request;
 
     const triedScripts: string[] = [];
 
     for (const [scriptId, sandbox] of this.sandboxes) {
+      //console.log('\n[ScriptEngine] 检查 sandbox:', scriptId);
+      //console.log('[ScriptEngine] sandbox.supportsSource(', source, '):', sandbox.supportsSource(source));
+                          console.log('[ScriptEngine] 2222');
+
       try {
         if (sandbox.supportsSource(source)) {
           triedScripts.push(scriptId);
+          console.log('[ScriptEngine] 即将调用 sandbox.request...');
+          console.log('[ScriptEngine] sandbox 对象:', sandbox ? '存在' : '不存在');
+          console.log('[ScriptEngine] sandbox.supportsSource 结果: true');
+          
+          console.log('[ScriptEngine] 即将执行 sandbox.request(request)...');
           const response = await sandbox.request(request);
+          console.log('[ScriptEngine] sandbox.request 执行完成');
+          //console.log('[ScriptEngine] sandbox.request 返回:', JSON.stringify(response, null, 2));
+          
           if (response && response.data && request.action === 'musicUrl' && (response.data as MusicUrlData).url) {
+            console.log('[ScriptEngine] 获取成功，返回 response');
+            console.log('========== [ScriptEngine] getMusicUrl 结束 ==========\n');
             return response;
           }
+        }else{
+                    console.log('[ScriptEngine] sandbox.supportsSource 不可用');
+
         }
       } catch (error: any) {
+        console.error('[ScriptEngine] sandbox.request 异常:', error.message);
+        console.error('[ScriptEngine] 异常堆栈:', error.stack);
+        
         if (error.message.includes('404') || error.message.includes('Not Found') || error.message.includes('API') || error.message.includes('服务器')) {
+          console.log('[ScriptEngine] 跳过此脚本，继续尝试下一个');
           continue;
         }
+        console.error('[ScriptEngine] 抛出异常');
+        console.log('========== [ScriptEngine] getMusicUrl 结束 ==========\n');
         throw error;
       }
     }
 
+    console.error('[ScriptEngine] 没有找到支持 source:', source, '的脚本');
+    console.error('[ScriptEngine] 已尝试的脚本:', triedScripts);
+    
     if (triedScripts.length > 0) {
+      console.error('[ScriptEngine] 抛出异常: 所有可用脚本都执行失败');
+      console.log('========== [ScriptEngine] getMusicUrl 结束 ==========\n');
       throw new Error(`所有可用脚本都执行失败: ${triedScripts.join(', ')}。请检查API服务器状态。`);
     }
 
-    throw new Error(`No available script for source: ${source}`);
+    console.error('[ScriptEngine] 抛出异常: No available script for source');
+    console.log('========== [ScriptEngine] getMusicUrl 结束 ==========\n');
+    throw new Error(`No available script for source1: ${source}`);
   }
 
   async getLyric(request: any): Promise<any> {
@@ -170,7 +203,7 @@ export class ScriptEngine {
       }
     }
 
-    throw new Error(`No available script for source: ${source}`);
+    throw new Error(`No available script for source2: ${source}`);
   }
 
   async getPic(request: any): Promise<MusicUrlResponse> {
@@ -188,7 +221,7 @@ export class ScriptEngine {
       }
     }
 
-    throw new Error(`No available script for source: ${source}`);
+    throw new Error(`No available script for source3: ${source}`);
   }
 
   getActiveScripts(): ScriptInfo[] {
@@ -205,21 +238,6 @@ export class ScriptEngine {
     }
     this.sandboxes.clear();
     this.activeScripts.clear();
-  }
-
-  private getFallbackSourcesForScript(scriptInfo: ScriptInfo): string[] {
-    const scriptName = scriptInfo.name.toLowerCase();
-    const scriptId = scriptInfo.id.toLowerCase();
-    
-    if (scriptName.includes('flower') || scriptName.includes('野花')) {
-      return ['kw', 'kg', 'tx', 'wy', 'mg'];
-    }
-    
-    if (scriptId.includes('flower')) {
-      return ['kw', 'kg', 'tx', 'wy', 'mg'];
-    }
-    
-    return [];
   }
 
   private async handleScriptRequest(sandbox: Sandbox, request: MusicUrlRequest): Promise<MusicUrlResponse> {

@@ -1,4 +1,6 @@
 import { ScriptInfo } from "../engine/script_engine.ts";
+import pako from "npm:pako";
+import { Buffer } from "npm:buffer";
 
 interface ScriptStorageItem {
   id: string;
@@ -119,11 +121,31 @@ export class ScriptStorage {
   }
 
   private async deflateScript(script: string): Promise<string> {
-    return script;
+    return new Promise((resolve, reject) => {
+      try {
+        const buffer = Buffer.from(script, 'utf8');
+        const compressed = pako.deflate(buffer);
+        resolve('gz_' + Buffer.from(compressed).toString('base64'));
+      } catch (err: any) {
+        reject(err);
+      }
+    });
   }
 
   private async inflateScript(script: string): Promise<string> {
-    return script;
+    return new Promise((resolve, reject) => {
+      try {
+        if (script.startsWith('gz_')) {
+          const compressed = Buffer.from(script.substring(3), 'base64');
+          const decompressed = pako.inflate(compressed);
+          resolve(Buffer.from(decompressed).toString('utf8'));
+        } else {
+          resolve(script);
+        }
+      } catch (err: any) {
+        reject(err);
+      }
+    });
   }
 
   parseScriptInfo(script: string): ScriptInfo {
@@ -151,41 +173,34 @@ export class ScriptStorage {
   }
 
   private parseCommentBlock(commentBlock: string): Record<string, string> {
-    const infoNames: Record<string, number> = {
+    const INFO_NAMES = {
       name: 24,
       description: 36,
       author: 56,
       homepage: 1024,
       version: 36,
-    };
+    } as const;
+    type INFO_NAMES_Type = typeof INFO_NAMES;
 
-    const result: Record<string, string> = {};
-    const lines = commentBlock.split(/\r?\n/);
+    const infoArr = commentBlock.split(/\r?\n/);
     const rxp = /^\s?\*\s?@(\w+)\s(.+)$/;
+    const infos: Partial<Record<keyof typeof INFO_NAMES, string>> = {};
 
-    for (const line of lines) {
-      const match = rxp.exec(line);
-      if (!match) continue;
-
-      const key = match[1];
-      if (!(key in infoNames)) continue;
-
-      let value = match[2].trim();
-
-      if (value.length > infoNames[key]) {
-        value = value.substring(0, infoNames[key]) + "...";
-      }
-
-      result[key] = value;
+    for (const info of infoArr) {
+      const result = rxp.exec(info);
+      if (!result) continue;
+      const key = result[1] as keyof typeof INFO_NAMES;
+      if (INFO_NAMES[key] == null) continue;
+      infos[key] = result[2].trim();
     }
 
-    for (const [key, len] of Object.entries(infoNames)) {
-      if (!(key in result)) {
-        result[key] = "";
-      }
+    for (const [key, len] of Object.entries(INFO_NAMES) as Array<{ [K in keyof INFO_NAMES_Type]: [K, INFO_NAMES_Type[K]] }[keyof INFO_NAMES_Type]>) {
+      infos[key] ||= '';
+      if (infos[key] == null) infos[key] = '';
+      else if (infos[key].length > len) infos[key] = infos[key].substring(0, len) + '...';
     }
 
-    return result;
+    return infos as Record<keyof typeof INFO_NAMES, string>;
   }
 
   async importScript(script: string): Promise<ScriptInfo> {

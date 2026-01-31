@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "洛雪音乐第三方音源后台 - Deno Deploy 实现",
   "type": "module",
+  "nodeModulesDir": "auto",
   "scripts": {
     "start": "deno run --allow-all --watch main.ts",
     "dev": "deno run --allow-all --watch main.ts",
@@ -18,7 +19,6 @@
     "strictNullChecks": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "lib": ["deno.ns", "dom"],
-    "types": ["https://deno.land/x/deno_types/global.d.ts"]
+    "lib": ["deno.ns", "dom"]
   }
 }

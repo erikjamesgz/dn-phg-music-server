@@ -3,6 +3,74 @@ import { RequestHandler } from "../handler/request_handler.ts";
 import { ScriptStorage } from "../storage/storage.ts";
 import { ScriptEngine } from "../engine/script_engine.ts";
 import { SearchService } from "../services/search_service.ts";
+import { LyricService } from "../services/lyric_service.ts";
+
+interface ApiResponse<T = any> {
+  code: number;
+  msg: string;
+  data: T | null;
+}
+
+class ApiResponseBuilder {
+  static success<T>(data: T, msg: string = "success"): ApiResponse<T> {
+    return {
+      code: 200,
+      msg,
+      data,
+    };
+  }
+
+  static error(msg: string, code: number = 400, data: any = null): ApiResponse<any> {
+    return {
+      code,
+      msg,
+      data,
+    };
+  }
+
+  static created<T>(data: T, msg: string = "created"): ApiResponse<T> {
+    return {
+      code: 201,
+      msg,
+      data,
+    };
+  }
+
+  static notFound(msg: string = "not found"): ApiResponse<null> {
+    return {
+      code: 404,
+      msg,
+      data: null,
+    };
+  }
+
+  static serverError(msg: string = "internal server error"): ApiResponse<null> {
+    return {
+      code: 500,
+      msg,
+      data: null,
+    };
+  }
+
+  static toResponse<T>(data: ApiResponse<T>, httpStatus: number = 200): Response {
+    return new Response(JSON.stringify(data), {
+      status: httpStatus,
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+    });
+  }
+
+  static toTextResponse(content: string, contentType: string = "text/plain; charset=utf-8"): Response {
+    return new Response(content, {
+      headers: { "Content-Type": contentType },
+    });
+  }
+
+  static toHtmlResponse(html: string): Response {
+    return new Response(html, {
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
+  }
+}
 
 export class APIRoutes {
   private app: Application;
@@ -10,6 +78,7 @@ export class APIRoutes {
   private storage: ScriptStorage;
   private engine: ScriptEngine;
   private searchService: SearchService;
+  private lyricService: LyricService;
 
   constructor(
     app: Application,
@@ -22,6 +91,7 @@ export class APIRoutes {
     this.storage = storage;
     this.engine = engine;
     this.searchService = new SearchService();
+    this.lyricService = new LyricService();
 
     this.setupRoutes();
   }
@@ -31,11 +101,11 @@ export class APIRoutes {
 
     router.get("/", () => this.handleIndex());
     router.get("/health", () => this.handleHealth());
-    router.get("/api/status", () => this.handleStatus());
+    router.get("/api/status", (ctx) => this.handleStatus(ctx));
 
-    router.get("/api/scripts", () => this.handleListScripts());
+    router.get("/api/scripts", (ctx) => this.handleListScripts(ctx));
     router.post("/api/scripts", (ctx) => this.handleImportScript(ctx));
-    router.get("/api/scripts/loaded", () => this.handleGetLoadedScripts());
+    router.get("/api/scripts/loaded", (ctx) => this.handleGetLoadedScripts(ctx));
     router.get("/api/scripts/:id", (ctx) => this.handleGetScript(ctx));
     router.post("/api/scripts/delete", (ctx) => this.handleRemoveScript(ctx));
     router.put("/api/scripts/:id", (ctx) => this.handleUpdateScript(ctx));
@@ -44,11 +114,72 @@ export class APIRoutes {
     router.post("/api/scripts/import/file", (ctx) => this.handleImportScriptFromFile(ctx));
 
     router.post("/api/scripts/default", (ctx) => this.handleSetDefaultSource(ctx));
-    router.get("/api/scripts/default", () => this.handleGetDefaultSource());
+    router.get("/api/scripts/default", (ctx) => this.handleGetDefaultSource(ctx));
 
-    router.post("/api/music/url", (ctx) => this.handleGetMusicUrl(ctx));
-    router.post("/api/music/lyric", (ctx) => this.handleGetLyric(ctx));
-    router.post("/api/music/pic", (ctx) => this.handleGetPic(ctx));
+    router.post("/api/music/url", async (ctx) => {
+      console.log('\n========== [API] 收到 /api/music/url 请求 ==========');
+      const startTime = Date.now();
+      let response: Response;
+      try {
+        response = await this.handleGetMusicUrl(ctx);
+        const duration = Date.now() - startTime;
+        console.log('[API] /api/music/url 调用完成，耗时:', duration, 'ms');
+        console.log('[API] 返回状态:', response.status);
+        const headersObj: Record<string, string> = {};
+        response.headers.forEach((value, key) => {
+          headersObj[key] = value;
+        });
+        console.log('[API] 返回头:', headersObj);
+        const responseBody = await response.clone().text();
+        console.log('[API] 返回内容:', responseBody);
+        console.log('========== [API] /api/music/url 请求结束 ==========\n');
+        return response;
+      } catch (error: any) {
+        console.error('[API] /api/music/url 抛出异常:', error.message);
+        console.error('[API] 异常堆栈:', error.stack);
+        console.log('========== [API] /api/music/url 请求异常结束 ==========\n');
+        return ApiResponseBuilder.toResponse(ApiResponseBuilder.serverError(error.message || "Internal Server Error"), 500);
+      }
+    });
+    router.post("/api/music/lyric", async (ctx) => {
+      console.log('\n========== [API] 收到 /api/music/lyric 请求 ==========');
+      const startTime = Date.now();
+      try {
+        const response = await this.handleGetLyricDirect(ctx);
+        const duration = Date.now() - startTime;
+        console.log('[API] /api/music/lyric 调用完成，耗时:', duration, 'ms');
+        console.log('[API] 返回状态:', response.status);
+        const responseBody = await response.clone().text();
+        console.log('[API] 返回内容:', responseBody);
+        console.log('========== [API] /api/music/lyric 请求结束 ==========\n');
+        return response;
+      } catch (error: any) {
+        console.error('[API] /api/music/lyric 抛出异常:', error.message);
+        console.error('[API] 异常堆栈:', error.stack);
+        console.log('========== [API] /api/music/lyric 请求异常结束 ==========\n');
+        return ApiResponseBuilder.toResponse(ApiResponseBuilder.serverError(error.message || "Internal Server Error"), 500);
+      }
+    });
+    router.post("/api/music/pic", async (ctx) => {
+      console.log('\n========== [API] 收到 /api/music/pic 请求 ==========');
+      const startTime = Date.now();
+      let response: Response;
+      try {
+        response = await this.handleGetPic(ctx);
+        const duration = Date.now() - startTime;
+        console.log('[API] /api/music/pic 调用完成，耗时:', duration, 'ms');
+        console.log('[API] 返回状态:', response.status);
+        const responseBody = await response.clone().text();
+        console.log('[API] 返回内容:', responseBody);
+        console.log('========== [API] /api/music/pic 请求结束 ==========\n');
+        return response;
+      } catch (error: any) {
+        console.error('[API] /api/music/pic 抛出异常:', error.message);
+        console.error('[API] 异常堆栈:', error.stack);
+        console.log('========== [API] /api/music/pic 请求异常结束 ==========\n');
+        return ApiResponseBuilder.toResponse(ApiResponseBuilder.serverError(error.message || "Internal Server Error"), 500);
+      }
+    });
 
     router.get("/api/search", (ctx) => this.handleSearch(ctx));
 
@@ -56,11 +187,29 @@ export class APIRoutes {
     router.delete("/api/request/:requestKey", (ctx) => this.handleCancelRequest(ctx));
 
     router.get("/api/export/:id", (ctx) => this.handleExportScript(ctx));
-    router.post("/api/export/all", () => this.handleExportAllScripts());
+    router.post("/api/export/all", (ctx) => this.handleExportAllScripts(ctx));
 
     router.post("/api/scripts/:id/update-alert", (ctx) => this.handleSetUpdateAlert(ctx));
 
-    router.get("/api/test/music-url", () => this.handleTestMusicUrl());
+    router.get("/api/test/music-url", (ctx) => this.handleTestMusicUrl(ctx));
+
+    // 新增：直接调用平台API获取歌词（不走第三方脚本）
+    router.post("/api/music/lyric/direct", async (ctx) => {
+      console.log('\n========== [API] 收到 /api/music/lyric/direct 请求 ==========');
+      const startTime = Date.now();
+      try {
+        const response = await this.handleGetLyricDirect(ctx);
+        const duration = Date.now() - startTime;
+        console.log('[API] /api/music/lyric/direct 调用完成，耗时:', duration, 'ms');
+        console.log('========== [API] /api/music/lyric/direct 请求结束 ==========\n');
+        return response;
+      } catch (error: any) {
+        console.error('[API] /api/music/lyric/direct 抛出异常:', error.message);
+        console.error('[API] 异常堆栈:', error.stack);
+        console.log('========== [API] /api/music/lyric/direct 请求异常结束 ==========\n');
+        return ApiResponseBuilder.toResponse(ApiResponseBuilder.serverError(error.message || "Internal Server Error"), 500);
+      }
+    });
   }
 
   private async handleIndex(): Promise<Response> {
@@ -273,54 +422,37 @@ export class APIRoutes {
   }
 
   private async handleHealth(): Promise<Response> {
-    return new Response(
-      JSON.stringify({ status: "healthy", timestamp: Date.now() }),
-      {
-        headers: { "Content-Type": "application/json" },
-      }
-    );
+    return ApiResponseBuilder.toResponse(ApiResponseBuilder.success({
+      status: "healthy",
+      timestamp: Date.now(),
+    }));
   }
 
-  private async handleStatus(): Promise<Response> {
+  private async handleStatus(_ctx: any): Promise<Response> {
     const defaultSource = this.storage.getDefaultSourceInfo();
-    return new Response(
-      JSON.stringify({
-        scriptCount: this.storage.getScriptCount(),
-        activeRequests: this.handler.getActiveRequestCount(),
-        timestamp: Date.now(),
-        defaultSource: defaultSource,
-      }),
-      {
-        headers: { "Content-Type": "application/json" },
-      }
-    );
+    return ApiResponseBuilder.toResponse(ApiResponseBuilder.success({
+      scriptCount: this.storage.getScriptCount(),
+      activeRequests: this.handler.getActiveRequestCount(),
+      timestamp: Date.now(),
+      defaultSource: defaultSource,
+    }));
   }
 
-  private async handleListScripts(): Promise<Response> {
+  private async handleListScripts(_ctx: any): Promise<Response> {
     try {
       const scripts = this.storage.getScripts();
-      return new Response(JSON.stringify(scripts), {
-        headers: { "Content-Type": "application/json" },
-      });
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.success(scripts));
     } catch (error: any) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.error(error.message, 500));
     }
   }
 
-  private async handleGetLoadedScripts(): Promise<Response> {
+  private async handleGetLoadedScripts(_ctx: any): Promise<Response> {
     try {
       const scripts = this.storage.getLoadedScripts();
-      return new Response(JSON.stringify(scripts), {
-        headers: { "Content-Type": "application/json" },
-      });
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.success(scripts));
     } catch (error: any) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.error(error.message, 500));
     }
   }
 
@@ -337,10 +469,7 @@ export class APIRoutes {
       }
 
       if (!body.script) {
-        return new Response(JSON.stringify({ error: "缺少脚本内容" }), {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        });
+        return ApiResponseBuilder.toResponse(ApiResponseBuilder.error("缺少脚本内容", 400));
       }
 
       let scriptInfo;
@@ -352,21 +481,12 @@ export class APIRoutes {
       
       const loaded = await this.engine.loadScript(scriptInfo);
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          apiInfo: scriptInfo,
-          loaded,
-        }),
-        {
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.created({
+        apiInfo: scriptInfo,
+        loaded,
+      }, "脚本导入成功"));
     } catch (error: any) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.error(error.message, 500));
     }
   }
 
@@ -375,31 +495,18 @@ export class APIRoutes {
       const body = await ctx.req.json();
       
       if (!body.url) {
-        return new Response(JSON.stringify({ error: "缺少URL参数" }), {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        });
+        return ApiResponseBuilder.toResponse(ApiResponseBuilder.error("缺少URL参数", 400));
       }
 
       const scriptInfo = await this.storage.importScriptFromUrl(body.url);
       const loaded = await this.engine.loadScript(scriptInfo);
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          apiInfo: scriptInfo,
-          loaded,
-          message: "从URL导入成功",
-        }),
-        {
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.created({
+        apiInfo: scriptInfo,
+        loaded,
+      }, "从URL导入成功"));
     } catch (error: any) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.error(error.message, 500));
     }
   }
 
@@ -426,31 +533,18 @@ export class APIRoutes {
       }
 
       if (!body.script) {
-        return new Response(JSON.stringify({ error: "缺少脚本内容" }), {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        });
+        return ApiResponseBuilder.toResponse(ApiResponseBuilder.error("缺少脚本内容", 400));
       }
 
       const scriptInfo = await this.storage.importScriptFromFile(body.script, body.fileName);
       const loaded = await this.engine.loadScript(scriptInfo);
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          apiInfo: scriptInfo,
-          loaded,
-          message: "从文件导入成功",
-        }),
-        {
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.created({
+        apiInfo: scriptInfo,
+        loaded,
+      }, "从文件导入成功"));
     } catch (error: any) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.error(error.message, 500));
     }
   }
 
@@ -460,20 +554,12 @@ export class APIRoutes {
       const script = await this.storage.getScript(id);
 
       if (!script) {
-        return new Response(JSON.stringify({ error: "脚本不存在" }), {
-          status: 404,
-          headers: { "Content-Type": "application/json" },
-        });
+        return ApiResponseBuilder.toResponse(ApiResponseBuilder.notFound("脚本不存在"), 404);
       }
 
-      return new Response(JSON.stringify(script), {
-        headers: { "Content-Type": "application/json" },
-      });
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.success(script));
     } catch (error: any) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.error(error.message, 500));
     }
   }
 
@@ -483,16 +569,7 @@ export class APIRoutes {
       const { id } = body;
       
       if (!id) {
-        return new Response(
-          JSON.stringify({
-            success: false,
-            message: "缺少脚本ID参数",
-          }),
-          {
-            status: 400,
-            headers: { "Content-Type": "application/json" },
-          }
-        );
+        return ApiResponseBuilder.toResponse(ApiResponseBuilder.error("缺少脚本ID参数", 400));
       }
       
       const removed = await this.storage.removeScript(id);
@@ -501,20 +578,11 @@ export class APIRoutes {
         await this.engine.unloadScript(id);
       }
 
-      return new Response(
-        JSON.stringify({
-          success: removed,
-          message: removed ? "脚本已删除" : "脚本不存在",
-        }),
-        {
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.success({
+        removed,
+      }, removed ? "脚本已删除" : "脚本不存在"));
     } catch (error: any) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.error(error.message, 500));
     }
   }
 
@@ -524,38 +592,23 @@ export class APIRoutes {
       const body = await ctx.req.json();
 
       if (!body.script) {
-        return new Response(JSON.stringify({ error: "缺少脚本内容" }), {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        });
+        return ApiResponseBuilder.toResponse(ApiResponseBuilder.error("缺少脚本内容", 400));
       }
 
       const updated = await this.storage.updateScript(id, body.script);
 
       if (!updated) {
-        return new Response(JSON.stringify({ error: "脚本不存在" }), {
-          status: 404,
-          headers: { "Content-Type": "application/json" },
-        });
+        return ApiResponseBuilder.toResponse(ApiResponseBuilder.notFound("脚本不存在"));
       }
 
       await this.engine.unloadScript(id);
       await this.engine.loadScript(updated);
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          apiInfo: updated,
-        }),
-        {
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.success({
+        apiInfo: updated,
+      }, "脚本更新成功"));
     } catch (error: any) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.error(error.message, 500));
     }
   }
 
@@ -565,16 +618,7 @@ export class APIRoutes {
       const { id } = body;
       
       if (!id) {
-        return new Response(
-          JSON.stringify({
-            success: false,
-            message: "缺少脚本ID参数",
-          }),
-          {
-            status: 400,
-            headers: { "Content-Type": "application/json" },
-          }
-        );
+        return ApiResponseBuilder.toResponse(ApiResponseBuilder.error("缺少脚本ID参数", 400));
       }
       
       const success = await this.storage.setDefaultSource(id);
@@ -585,62 +629,52 @@ export class APIRoutes {
         await this.engine.loadScript(scriptInfo);
       }
 
-      return new Response(
-        JSON.stringify({
-          success,
-          message: success ? `默认音源已设置为: ${scriptInfo?.name || id}` : "脚本不存在",
-        }),
-        {
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.success({
+        defaultSource: scriptInfo?.name || id,
+      }, success ? `默认音源已设置为: ${scriptInfo?.name || id}` : "脚本不存在"));
     } catch (error: any) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.error(error.message, 500));
     }
   }
 
-  private async handleGetDefaultSource(): Promise<Response> {
+  private async handleGetDefaultSource(_ctx: any): Promise<Response> {
     try {
       const defaultInfo = this.storage.getDefaultSourceInfo();
-      return new Response(
-        JSON.stringify({
-          id: defaultInfo?.id || null,
-          name: defaultInfo?.name || null,
-          supportedSources: defaultInfo?.supportedSources || [],
-        }),
-        {
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.success({
+        id: defaultInfo?.id || null,
+        name: defaultInfo?.name || null,
+        supportedSources: defaultInfo?.supportedSources || [],
+      }));
     } catch (error: any) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.error(error.message, 500));
     }
   }
 
   private async handleGetMusicUrl(ctx: any): Promise<Response> {
+    console.log('\n========== [API] handleGetMusicUrl 开始 ==========');
+
     try {
       const body = await ctx.req.json();
+      console.log('[API] 请求参数:', JSON.stringify(body, null, 2));
 
       const requiredFields = ['source', 'quality'];
       for (const field of requiredFields) {
         if (!body[field]) {
-          return new Response(
-            JSON.stringify({ error: `缺少必要参数: ${field}` }),
-            {
-              status: 400,
-              headers: { "Content-Type": "application/json" },
-            }
-          );
+          console.error(`[API] 缺少必要参数: ${field}`);
+          return ApiResponseBuilder.toResponse(ApiResponseBuilder.error(`缺少必要参数: ${field}`, 400));
         }
       }
 
       const songId = body.songmid || body.id || body.songId || body.musicInfo?.id || body.musicInfo?.songmid || body.musicInfo?.hash || '';
+      console.log('[API] songId 计算过程:');
+      console.log('[API]   body.songmid:', body.songmid);
+      console.log('[API]   body.id:', body.id);
+      console.log('[API]   body.songId:', body.songId);
+      console.log('[API]   body.musicInfo:', body.musicInfo);
+      console.log('[API]   body.musicInfo?.id:', body.musicInfo?.id);
+      console.log('[API]   body.musicInfo?.songmid:', body.musicInfo?.songmid);
+      console.log('[API]   body.musicInfo?.hash:', body.musicInfo?.hash);
+      console.log('[API]   最终 songId:', songId);
       const name = body.name || body.musicInfo?.name || '未知歌曲';
       const singer = body.singer || body.musicInfo?.singer || '未知歌手';
       const interval = body.interval || body.musicInfo?.interval || null;
@@ -651,25 +685,23 @@ export class APIRoutes {
       const copyrightId = body.copyrightId || body.musicInfo?.copyrightId;
 
       const requestKey = `music_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      console.log('[API] 生成 requestKey:', requestKey);
 
-      const result = await this.handler.handleRequest({
+      const musicInfoSource = body.musicInfo?.source || body.source || 'unknown';
+      console.log('[API] musicInfoSource:', musicInfoSource);
+
+      const requestData = {
         requestKey,
         data: {
-          source: body.source,
+          source: musicInfoSource,
           action: 'musicUrl',
           info: {
             type: body.quality,
-            id: songId,
-            songId: songId,
-            name: name,
-            singer: singer,
-            interval: interval,
-            hash: hash,
             musicInfo: {
               id: songId,
               name: name,
               singer: singer,
-              source: body.source,
+              source: musicInfoSource,
               interval: interval,
               songmid: songId,
               meta: {
@@ -683,138 +715,130 @@ export class APIRoutes {
             },
           },
         },
-      });
+      };
+      console.log('[API] 调用 handler.handleRequest, 参数:', JSON.stringify(requestData, null, 2));
+
+      const result = await this.handler.handleRequest(requestData);
+      console.log('[API] handler.handleRequest 返回:', JSON.stringify(result, null, 2));
 
       if (result.status && result.data && result.data.result) {
         const musicUrlData = result.data.result as { url: string; type: string };
         if (musicUrlData.url) {
-          return new Response(
-            JSON.stringify({
-              success: true,
-              url: musicUrlData.url,
-              type: musicUrlData.type,
-              source: body.source,
-              quality: body.quality,
-            }),
-            {
-              headers: { "Content-Type": "application/json" },
-            }
-          );
+          console.log('[API] 获取成功，返回 URL:', musicUrlData.url);
+          const responseData = {
+            url: musicUrlData.url,
+            type: musicUrlData.type,
+            source: body.source,
+            quality: body.quality,
+          };
+          console.log('[API] 最终响应:', JSON.stringify(responseData, null, 2));
+          console.log('========== [API] handleGetMusicUrl 结束 ==========\n');
+          return ApiResponseBuilder.toResponse(ApiResponseBuilder.success(responseData, "获取成功"));
         }
       }
 
-      // 备选方案：如果脚本返回失败，尝试直接从 API 获取 URL
-      if (body.musicInfo?.id) {
-        try {
-          console.log('[API] 脚本返回失败，尝试直接从 API 获取 URL');
-          const source = body.source || 'kw';
-          const apiUrl = `https://lxmusicapi.onrender.com/url/${source}/${body.musicInfo.id}/${body.quality}`;
-          const apiResponse = await fetch(apiUrl, {
-            headers: { "X-Request-Key": "share-v2" }
-          });
-          
-          if (apiResponse.ok) {
-            const apiData = await apiResponse.json();
-            if (apiData.url) {
-              console.log('[API] 直接从 API 获取成功:', apiData.url);
-              return new Response(
-                JSON.stringify({
-                  success: true,
-                  url: apiData.url,
-                  type: body.quality,
-                  source: body.source,
-                  quality: body.quality,
-                }),
-                {
-                  headers: { "Content-Type": "application/json" },
-                }
-              );
-            }
-          }
-        } catch (apiError) {
-          console.error('[API] 直接从 API 获取失败:', apiError);
-        }
-      }
-
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: result.message || "获取播放URL失败",
-          source: body.source,
-        }),
-        {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+      console.error('[API] 获取播放URL失败:', result.message);
+      console.log('========== [API] handleGetMusicUrl 结束 ==========\n');
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.error(result.message || "获取播放URL失败", 500, {
+        source: body.source,
+      }));
     } catch (error: any) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      console.error('[API] handleGetMusicUrl 抛出异常:', error.message);
+      console.error('[API] 异常堆栈:', error.stack);
+      console.log('========== [API] handleGetMusicUrl 结束 ==========\n');
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.serverError(error.message));
     }
   }
 
-  private async handleGetLyric(ctx: any): Promise<Response> {
+
+
+  // 新增：直接调用平台API获取歌词（统一参数接口）
+  // 统一参数：source, songId, name, singer
+  private async handleGetLyricDirect(ctx: any): Promise<Response> {
+    console.log('\n========== [API] handleGetLyricDirect 开始 ==========');
+    console.log('[API] 请求时间:', new Date().toISOString());
+    
     try {
       const body = await ctx.req.json();
+      console.log('[API] 请求参数:', JSON.stringify(body, null, 2));
 
-      if (!body.source || !body.songmid || !body.name || !body.singer) {
-        return new Response(
-          JSON.stringify({ error: "缺少必要参数" }),
-          {
-            status: 400,
-            headers: { "Content-Type": "application/json" },
-          }
-        );
+      // 验证必要参数
+      if (!body.source) {
+        console.error('[API] 缺少source参数');
+        return ApiResponseBuilder.toResponse(ApiResponseBuilder.error("缺少必要参数: source", 400));
       }
 
-      const musicInfo = {
-        id: body.songmid,
-        name: body.name,
-        singer: body.singer,
-        songmid: body.songmid,
-        source: body.source,
-      };
-
-      const requestKey = `lyric_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-
-      const result = await this.handler.handleRequest({
-        requestKey,
-        data: {
-          source: body.source,
-          action: 'lyric',
-          info: { musicInfo },
-        },
-      });
-
-      if (result.status) {
-        return new Response(
-          JSON.stringify({
-            success: true,
-            lyric: result.data.result,
-          }),
-          {
-            headers: { "Content-Type": "application/json" },
-          }
-        );
+      const source = body.source;
+      
+      // 统一参数：只接受 songId
+      const songId = body.songId;
+      
+      if (!songId) {
+        console.error('[API] 缺少歌曲ID参数');
+        return ApiResponseBuilder.toResponse(ApiResponseBuilder.error("缺少必要参数: songId", 400));
       }
 
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: result.message || "获取歌词失败",
-        }),
-        {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+      // 统一参数名
+      const name = body.name || '';
+      const singer = body.singer || '';
+
+      // 根据音源映射参数
+      let musicInfo: any = { source };
+
+      switch (source) {
+        case 'kw':
+          // 酷我：只需要 songmid
+          musicInfo.songmid = songId;
+          break;
+        case 'kg':
+          // 酷狗：需要 hash, name
+          musicInfo.hash = songId;
+          musicInfo.name = name || '未知歌曲';
+          break;
+        case 'tx':
+          // QQ音乐：需要 songId (即 songmid)
+          musicInfo.songId = songId;
+          break;
+        case 'wy':
+          // 网易云：需要 songId
+          musicInfo.songId = songId;
+          break;
+        case 'mg':
+          // 咪咕：需要 copyrightId, name, singer
+          musicInfo.copyrightId = songId;
+          musicInfo.name = name;
+          musicInfo.singer = singer;
+          break;
+        default:
+          console.error('[API] 不支持的音源:', source);
+          return ApiResponseBuilder.toResponse(ApiResponseBuilder.error(`不支持的音源: ${source}`, 400));
+      }
+
+      console.log('[API] 开始调用歌词服务, musicInfo:', JSON.stringify(musicInfo, null, 2));
+      
+      // 调用歌词服务
+      const lyricResult = await this.lyricService.getLyric(musicInfo);
+      
+      console.log('[API] 歌词服务返回成功');
+      console.log('[API] 歌词长度:', lyricResult.lyric?.length || 0);
+      console.log('[API] 翻译歌词长度:', lyricResult.tlyric?.length || 0);
+      console.log('[API] 罗马音歌词长度:', lyricResult.rlyric?.length || 0);
+      console.log('[API] 逐字歌词长度:', lyricResult.lxlyric?.length || 0);
+      
+      const response = ApiResponseBuilder.toResponse(ApiResponseBuilder.success({
+        lyric: lyricResult.lyric,
+        tlyric: lyricResult.tlyric || '',
+        rlyric: lyricResult.rlyric || '',
+        lxlyric: lyricResult.lxlyric || '',
+      }, "获取歌词成功"));
+      
+      console.log('========== [API] handleGetLyricDirect 结束 ==========\n');
+      return response;
     } catch (error: any) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      console.error('[API] 获取歌词失败:', error.message);
+      console.error('[API] 错误堆栈:', error.stack);
+      console.log('========== [API] handleGetLyricDirect 异常结束 ==========\n');
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.serverError(error.message || "获取歌词失败"));
     }
   }
 
@@ -823,13 +847,7 @@ export class APIRoutes {
       const body = await ctx.req.json();
 
       if (!body.source || !body.songmid || !body.name || !body.singer) {
-        return new Response(
-          JSON.stringify({ error: "缺少必要参数" }),
-          {
-            status: 400,
-            headers: { "Content-Type": "application/json" },
-          }
-        );
+        return ApiResponseBuilder.toResponse(ApiResponseBuilder.error("缺少必要参数", 400));
       }
 
       const musicInfo = {
@@ -852,32 +870,14 @@ export class APIRoutes {
       });
 
       if (result.status) {
-        return new Response(
-          JSON.stringify({
-            success: true,
-            url: result.data.result,
-          }),
-          {
-            headers: { "Content-Type": "application/json" },
-          }
-        );
+        return ApiResponseBuilder.toResponse(ApiResponseBuilder.success({
+          url: result.data.result,
+        }, "获取成功"));
       }
 
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: result.message || "获取封面图失败",
-        }),
-        {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.error(result.message || "获取封面图失败", 500));
     } catch (error: any) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.serverError(error.message));
     }
   }
 
@@ -890,37 +890,19 @@ export class APIRoutes {
       const limit = parseInt(url.searchParams.get('limit') || '20');
 
       if (!keyword) {
-        return new Response(
-          JSON.stringify({ error: "缺少必要参数: keyword" }),
-          {
-            status: 400,
-            headers: { "Content-Type": "application/json" },
-          }
-        );
+        return ApiResponseBuilder.toResponse(ApiResponseBuilder.error("缺少必要参数: keyword", 400));
       }
 
       const results = await this.searchService.search(keyword, source, page, limit);
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          keyword,
-          page,
-          limit,
-          results,
-        }),
-        {
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.success({
+        keyword,
+        page,
+        limit,
+        results,
+      }, "搜索成功"));
     } catch (error: any) {
-      return new Response(
-        JSON.stringify({ error: error.message }),
-        {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.serverError(error.message));
     }
   }
 
@@ -929,25 +911,14 @@ export class APIRoutes {
       const body = await ctx.req.json();
 
       if (!body.requestKey || !body.data) {
-        return new Response(
-          JSON.stringify({ error: "缺少必要参数" }),
-          {
-            status: 400,
-            headers: { "Content-Type": "application/json" },
-          }
-        );
+        return ApiResponseBuilder.toResponse(ApiResponseBuilder.error("缺少必要参数", 400));
       }
 
       const result = await this.handler.handleRequest(body);
 
-      return new Response(JSON.stringify(result), {
-        headers: { "Content-Type": "application/json" },
-      });
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.success(result, "请求完成"));
     } catch (error: any) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.serverError(error.message));
     }
   }
 
@@ -956,20 +927,11 @@ export class APIRoutes {
       const { requestKey } = ctx.params;
       this.handler.cancelRequest(requestKey);
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          message: "请求已取消",
-        }),
-        {
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.success({
+        requestKey,
+      }, "请求已取消"));
     } catch (error: any) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.serverError(error.message));
     }
   }
 
@@ -979,42 +941,23 @@ export class APIRoutes {
       const script = await this.storage.exportScript(id);
 
       if (!script) {
-        return new Response(JSON.stringify({ error: "脚本不存在" }), {
-          status: 404,
-          headers: { "Content-Type": "application/json" },
-        });
+        return ApiResponseBuilder.toResponse(ApiResponseBuilder.notFound("脚本不存在"), 404);
       }
 
-      return new Response(script, {
-        headers: {
-          "Content-Type": "text/plain; charset=utf-8",
-          "Content-Disposition": `attachment; filename="${id}.js"`,
-        },
-      });
+      return ApiResponseBuilder.toTextResponse(script, "text/plain; charset=utf-8");
     } catch (error: any) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.serverError(error.message));
     }
   }
 
-  private async handleExportAllScripts(): Promise<Response> {
+  private async handleExportAllScripts(_ctx: any): Promise<Response> {
     try {
       const scripts = await this.storage.exportAllScripts();
       const combined = scripts.join("\n\n// --- 分隔线 ---\n\n");
 
-      return new Response(combined, {
-        headers: {
-          "Content-Type": "text/plain; charset=utf-8",
-          "Content-Disposition": `attachment; filename="all_scripts_${Date.now()}.js"`,
-        },
-      });
+      return ApiResponseBuilder.toTextResponse(combined, "text/plain; charset=utf-8");
     } catch (error: any) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.serverError(error.message));
     }
   }
 
@@ -1026,24 +969,16 @@ export class APIRoutes {
 
       const success = await this.storage.setAllowShowUpdateAlert(id, enabled);
 
-      return new Response(
-        JSON.stringify({
-          success,
-          message: success ? "设置已更新" : "脚本不存在",
-        }),
-        {
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.success({
+        id,
+        enabled,
+      }, success ? "设置已更新" : "脚本不存在"));
     } catch (error: any) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.serverError(error.message));
     }
   }
 
-  private async handleTestMusicUrl(): Promise<Response> {
+  private async handleTestMusicUrl(_ctx: any): Promise<Response> {
     try {
       await this.storage.ready();
 
@@ -1053,15 +988,7 @@ export class APIRoutes {
       );
 
       if (!kwScript) {
-        return new Response(
-          JSON.stringify({
-            success: false,
-            error: "No script found for kw",
-          }),
-          {
-            headers: { "Content-Type": "application/json" },
-          }
-        );
+        return ApiResponseBuilder.toResponse(ApiResponseBuilder.error("未找到 kw 音源脚本", 404));
       }
 
       const musicInfo = {
@@ -1090,22 +1017,13 @@ export class APIRoutes {
         },
       });
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          scripts: allScripts,
-          kwScriptFound: !!kwScript,
-          result,
-        }),
-        {
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.success({
+        scripts: allScripts,
+        kwScriptFound: !!kwScript,
+        result,
+      }, "测试完成"));
     } catch (error: any) {
-      return new Response(JSON.stringify({ error: error.message, stack: error.stack }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      return ApiResponseBuilder.toResponse(ApiResponseBuilder.serverError(error.message));
     }
   }
 }

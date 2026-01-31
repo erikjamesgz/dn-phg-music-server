@@ -1,3 +1,15 @@
+import { type BodyData } from "node:crypto";
+import { HttpsProxyAgent } from "npm:https-proxy-agent";
+import { HttpProxyAgent } from "npm:http-proxy-agent";
+
+export const requestMsg = {
+  fail: '请求异常😮，可以多试几次，若还是不行就换一首吧。。。',
+  unachievable: '哦No😱...接口无法访问了！',
+  timeout: '请求超时',
+  notConnectNetwork: '无法连接到服务器',
+  cancelRequest: '取消http请求',
+} as const;
+
 interface RequestOptions {
   url: string;
   method: string;
@@ -6,6 +18,7 @@ interface RequestOptions {
   body?: any;
   form?: Record<string, any>;
   formData?: Record<string, any>;
+  agent?: any;
 }
 
 interface Response {
@@ -23,60 +36,27 @@ interface RequestCallback {
 
 const DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36';
 
-const API_CONFIG = {
-  oldServers: ['tempmusics.tk', 'tempmusic.xyz', 'tempmusic.top', 'api.lxmusic.ml', 'api.lxmusic.xyz'],
-  newServer: 'https://lxmusicapi.onrender.com',
-  requestKey: 'share-v2',
-  bHh: '624868746c',
-  appVersion: '2.10.0',
-};
-
-async function handleDeflateRaw(data: Uint8Array): Promise<Uint8Array> {
-  const compressionStream = new CompressionStream('deflate-raw');
-  const writer = compressionStream.writable.getWriter();
-  await writer.write(data as any);
-  await writer.close();
-  const compressedData = await new Response(compressionStream.readable).arrayBuffer();
-  return new Uint8Array(compressedData);
-}
-
-async function generateAuthHeader(url: string, headers: Record<string, string>): Promise<void> {
-  try {
-    if (!headers[API_CONFIG.bHh]) {
-      return;
-    }
-
-    const path = url.replace(/^https?:\/\/[\w.:]+\//, '/');
-
-    let s = atob(API_CONFIG.bHh);
-    s = s.replace(s.slice(-1), '');
-    s = atob(s);
-
-    const v = API_CONFIG.appVersion.split('-')[0].split('.').map(n => n.length < 3 ? n.padStart(3, '0') : n).join('');
-    const v2 = API_CONFIG.appVersion.split('-')[1] || '';
-
-    const regx = /(?:\d\w)+/g;
-    const match = `${path}${v}`.match(regx);
-
-    if (match && match[0]) {
-      const dataToCompress = JSON.stringify([match[0], null, 1].concat(v));
-      const compressedData = await handleDeflateRaw(new TextEncoder().encode(dataToCompress));
-      const base64Data = btoa(String.fromCharCode(...compressedData));
-      const hexData = base64Data.split('').map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join('');
-
-      headers[s] = !s ? '' : `${hexData}&${parseInt(v)}${v2}`;
-      delete headers[API_CONFIG.bHh];
-    }
-  } catch (error) {
-  }
-}
+const httpsRxp = /^https:/;
 
 export class RequestManager {
   private activeRequests: Map<string, AbortController> = new Map();
-  private proxyConfig: { host: string; port: string } = { host: '', port: '' };
+  private proxyHost: string | null = null;
+  private proxyPort: number | null = null;
 
-  setProxy(host: string, port: string): void {
-    this.proxyConfig = { host, port };
+  setProxy(host: string, port: number): void {
+    this.proxyHost = host;
+    this.proxyPort = port;
+  }
+
+  private getRequestAgent(url: string): any {
+    if (this.proxyHost && this.proxyPort) {
+      const proxyOptions = {
+        host: this.proxyHost,
+        port: this.proxyPort,
+      };
+      return httpsRxp.test(url) ? new HttpsProxyAgent(`http://${this.proxyHost}:${this.proxyPort}`) : new HttpProxyAgent(`http://${this.proxyHost}:${this.proxyPort}`);
+    }
+    return undefined;
   }
 
   addRequest(options: RequestOptions, callback?: RequestCallback): void {
@@ -99,7 +79,6 @@ export class RequestManager {
     try {
       let requestBody: string | FormData | undefined;
       let contentType: string | undefined;
-      let useJsonEncoding = true;
 
       if (options.body) {
         requestBody = typeof options.body === 'string'
@@ -109,14 +88,12 @@ export class RequestManager {
       } else if (options.form) {
         requestBody = new URLSearchParams(options.form).toString();
         contentType = 'application/x-www-form-urlencoded';
-        useJsonEncoding = false;
       } else if (options.formData) {
         const form = new FormData();
         for (const [key, value] of Object.entries(options.formData)) {
           form.append(key, value);
         }
         requestBody = form;
-        useJsonEncoding = false;
       }
 
       const headers: Record<string, string> = {
@@ -124,21 +101,8 @@ export class RequestManager {
         ...options.headers,
       };
 
-      const requestContentType = contentType || '';
-
-      if (requestContentType && !headers['Content-Type']) {
-        headers['Content-Type'] = requestContentType;
-      }
-
-      if (this.shouldAddApiKey(options.url)) {
-        headers['X-Request-Key'] = API_CONFIG.requestKey;
-      }
-
-      await generateAuthHeader(options.url, headers);
-
-      if (this.proxyConfig.host && !this.isLocalUrl(options.url)) {
-        const proxyUrl = `http://${this.proxyConfig.host}:${this.proxyConfig.port}`;
-        headers['Proxy-Authorization'] = `Basic ${btoa(`${this.proxyConfig.host}:${this.proxyConfig.port}`)}`;
+      if (contentType && !headers['Content-Type']) {
+        headers['Content-Type'] = contentType;
       }
 
       const fetchOptions: RequestInit = {
@@ -149,6 +113,11 @@ export class RequestManager {
 
       if (requestBody) {
         fetchOptions.body = requestBody as BodyInit;
+      }
+
+      const agent = options.agent || this.getRequestAgent(options.url);
+      if (agent) {
+        (fetchOptions as any).agent = agent;
       }
 
       const response = await fetch(options.url, fetchOptions);
@@ -193,7 +162,7 @@ export class RequestManager {
             raw: new Uint8Array(0),
             body: null,
           };
-          callback(new Error('Request cancelled'), errorResponse, null);
+          callback(new Error(requestMsg.cancelRequest), errorResponse, null);
         }
       } else {
         if (callback) {
@@ -222,61 +191,6 @@ export class RequestManager {
 
   private generateRequestKey(options: RequestOptions): string {
     return `${options.method}_${options.url}_${Date.now()}`;
-  }
-
-  private getMirrorUrl(url: string): string | null {
-    try {
-      const urlObj = new URL(url);
-      
-      if (urlObj.hostname === 'registry.npmjs.org') {
-        const mirrorUrl = new URL(url);
-        mirrorUrl.hostname = 'registry.npmmirror.com';
-        return mirrorUrl.toString();
-      }
-      
-      for (const oldServer of API_CONFIG.oldServers) {
-        if (urlObj.hostname === oldServer || urlObj.hostname.endsWith('.' + oldServer)) {
-          const pathParts = urlObj.pathname.split('/').filter(p => p);
-          if (pathParts.length >= 3) {
-            const newUrl = new URL(`${API_CONFIG.newServer}/${pathParts.slice(1).join('/')}`);
-            return newUrl.toString();
-          }
-        }
-      }
-
-      if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(urlObj.hostname)) {
-        const pathParts = urlObj.pathname.split('/').filter(p => p);
-        if (pathParts.length >= 3 && urlObj.pathname.includes('/flower/')) {
-          const newUrl = new URL(`${API_CONFIG.newServer}/${pathParts.slice(1).join('/')}`);
-          return newUrl.toString();
-        }
-      }
-      
-      return null;
-    } catch {
-      return null;
-    }
-  }
-
-  private shouldAddApiKey(url: string): boolean {
-    try {
-      const urlObj = new URL(url);
-      return urlObj.hostname === new URL(API_CONFIG.newServer).hostname;
-    } catch {
-      return false;
-    }
-  }
-
-  private isLocalUrl(url: string): boolean {
-    try {
-      const urlObj = new URL(url);
-      return ['localhost', '127.0.0.1', '::1'].includes(urlObj.hostname) ||
-             urlObj.hostname.startsWith('192.168.') ||
-             urlObj.hostname.startsWith('10.') ||
-             urlObj.hostname.endsWith('.local');
-    } catch {
-      return false;
-    }
   }
 
   async clearAllRequests(): Promise<void> {

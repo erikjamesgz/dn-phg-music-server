@@ -13,24 +13,44 @@ new APIRoutes(app, handler, storage, engine);
 
 await storage.ready();
 
-const port = Deno.env.get("PORT") || 8080;
+const port = Deno.env.get("PORT") || "8080";
 
 console.log(`服务器运行在 http://localhost:${port}`);
 
 const scripts = await storage.getAllScripts();
 console.log(`找到 ${scripts.length} 个脚本，开始异步加载...`);
 
-Promise.all(scripts.map(async (script) => {
+let hasInitFailed = false;
+
+const loadScriptPromises = scripts.map(async (script) => {
     try {
         await engine.loadScript(script);
         console.log(`✓ 脚本加载成功: ${script.name}`);
-    } catch (error) {
-        console.error(`✗ 脚本加载失败: ${script.name}`, error);
+    } catch (error: any) {
+        console.error(`✗ 脚本加载失败: ${script.name}`, error?.message || error);
+        hasInitFailed = true;
     }
-})).then(() => {
-    console.log('所有脚本加载完成');
-}).catch((error) => {
-    console.error('脚本加载过程中发生错误:', error);
+});
+
+await Promise.all(loadScriptPromises);
+
+if (hasInitFailed) {
+    console.error('❌ 脚本初始化失败，服务器无法启动');
+    Deno.exit(1);
+}
+
+console.log('所有脚本加载完成');
+
+globalThis.addEventListener("unhandledrejection", (event: PromiseRejectionEvent) => {
+  console.error("\n========== [Unhandled Promise Rejection] ==========");
+  console.error("原因:", event.reason);
+  console.error("==================================================\n");
+});
+
+globalThis.addEventListener("error", (event: ErrorEvent) => {
+  console.error("\n========== [Unhandled Error] ==========");
+  console.error("消息:", event.message);
+  console.error("========================================\n");
 });
 
 try {
