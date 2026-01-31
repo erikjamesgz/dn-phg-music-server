@@ -1,27 +1,7 @@
 {
   "scripts": [
-    {
-      "id": "user_api_297_1769596193331",
-      "name": "Huibq_lxmusic源",
-      "description": "Github搜索“洛雪音乐音源”，禁止批量下载！",
-      "author": "Huibq",
-      "homepage": "",
-      "version": "v1.2.0",
-      "rawScript": "/*!\n * @name Huibq_lxmusic源\n * @description Github搜索“洛雪音乐音源”，禁止批量下载！\n * @version v1.2.0\n * @author Huibq\n */\nconst DEV_ENABLE = false\nconst API_URL = 'https://lxmusicapi.onrender.com'\nconst API_KEY = 'share-v3'\nconst MUSIC_QUALITY = {\n  kw: ['128k', '320k'],\n  kg: ['128k', '320k'],\n  tx: ['128k', '320k'],\n  wy: ['128k', '320k'],\n  mg: ['128k', '320k'],\n}\nconst MUSIC_SOURCE = Object.keys(MUSIC_QUALITY)\nconst { EVENT_NAMES, request, on, send, utils, env, version } = globalThis.lx\nconst httpFetch = (url, options = { method: 'GET' }) => {\n  return new Promise((resolve, reject) => {\n    request(url, options, (err, resp) => {\n      if (err) return reject(err)\n      resolve(resp)\n    })\n  })\n}\nconst handleGetMusicUrl = async (source, musicInfo, quality) => {\n  const songId = musicInfo.hash ?? musicInfo.songmid\n\n  const request = await httpFetch(`${API_URL}/url/${source}/${songId}/${quality}`, {\n    method: 'GET',\n    headers: {\n      'Content-Type': 'application/json',\n      'User-Agent': `${env ? `lx-music-${env}/${version}` : `lx-usic-request/${version}`}`,\n      'X-Request-Key': API_KEY,\n    },\n  })\n  const { body } = request\n  if (!body || isNaN(Number(body.code))) throw new Error('unknow error')\n  switch (body.code) {\n    case 0:\n      return body.url\n    case 1:\n      throw new Error('block ip')\n    case 2:\n      throw new Error('get music url failed')\n    case 4:\n      throw new Error('internal server error')\n    case 5:\n      throw new Error('too many requests')\n    case 6:\n      throw new Error('param error')\n    default:\n      throw new Error(body.msg ?? 'unknow error')\n  }\n}\nconst musicSources = {}\nMUSIC_SOURCE.forEach(item => {\n  musicSources[item] = {\n    name: item,\n    type: 'music',\n    actions: ['musicUrl'],\n    qualitys: MUSIC_QUALITY[item],\n  }\n})\non(EVENT_NAMES.request, ({ action, source, info }) => {\n  switch (action) {\n    case 'musicUrl':\n      if (env != 'mobile') {\n        console.group(`Handle Action(musicUrl)`)\n        console.log('source', source)\n        console.log('quality', info.type)\n        console.log('musicInfo', info.musicInfo)\n        console.groupEnd()\n      } else {\n        console.log(`Handle Action(musicUrl)`)\n        console.log('source', source)\n        console.log('quality', info.type)\n        console.log('musicInfo', info.musicInfo)\n      }\n      return handleGetMusicUrl(source, info.musicInfo, info.type)\n        .then(data => Promise.resolve(data))\n        .catch(err => Promise.reject(err))\n    default:\n      console.error(`action(${action}) not support`)\n      return Promise.reject('action not support')\n  }\n})\nsend(EVENT_NAMES.inited, { status: true, openDevTools: DEV_ENABLE, sources: musicSources })\n",
-      "supportedSources": [
-        "kw",
-        "kg",
-        "tx",
-        "wy",
-        "mg"
-      ],
-      "script": "gz_eJzNVk9v2zYUv/tTMEAASYUsJ+k2DAa6zEu9NGjidoldbCiKmLYYW7VEKiRlx3AFtKdh2IDl3g4DethhwE7rYR3aL1MU6XLqV9gjRSnSYt93keX3fu8vf+9RjRtrNXQDfUlxRNCdJBicHodnUSKC4cXf51rjEzHkQSwDRtFuIMfJ4OL8xYdXL989fXHx6vnl898vf/3z/etzeILFu6e/fHzz04ffnl388fLih9eX3//8/q8f/3n79uObZ9rZlHChHE03vS1vQ4twIseMZ7FB0KgNGRUS3W4/OG53Wl/tt9EtdIJDQYyidX/vuHe4D1JrLGUsmo2GyRjHgccoJ9Qn3BuyyCpZ3G1/pyzEGHNSn97MVQe9o72d4296rf29rgIsaghNZk300Nrc+nxiuci6ubUxsR65Sj5aLpdny+Wz+XJ5tNRPWsno6F7vcEdVfm/wmAylNyFzYVeSdQx+gdoP2p3ucad10D5yESenCRHSRYy6SEArXJTIIBQuInTqorz/KbgehWyAw+44EF54Zrypjn5N5HAMejvhIfjRJy9Ub1BE4Kj8JrJ2210LpQ669YXuGCcy4RRRMkP3OYsCQWybE8HCKVEZqQoKLMpTrLh3kU04V2ARl6AIBSda4+QxMm9aZBAmkK1NtSxVP/DIWzrG1A/JLpEHiiU9HkIxWMzpENmCJXwISWr+7NET5qLTBIeBnBdZZD4Eo6M9HwwLpDfGYoy2t0sSBYoCv1ZYmVJVvBkOSu21++sLQ+S0AY1orC+yVFL9pmKpN5NL2ndNQyon4GrRmGDgu2gWLbN2GJWEynp3HhMLsDiOQ5gO1ejGY3BuDAHZE4TXWyMAAw5SAo6gbdQPz+q6qLqWqEQMb9I+amq11prqymrINPf9bf0w09fvkjm4N1OY6VO3Zs4pZ/GA+XNNS+O1lp39mpY/eYIC0cEdu5NEA8JtJYQJ94njOEiOOZtp8rU5Z9y2EjqhICHqn6ViiFmgKF0yM80aYkHQRrNgkqaYRsGZXCE2c8S1UIOQDScoiC3nCr21Ej0iMmMLAvew1IKQ+GXLT1ZaBnCinOIQRppDs0u1GdNPV5pKxlCE6TxvrCibfbbSLMYcR5U4PjnBSShXWei2RWKkRuL6EaTFNOoGHGmy662S1sorzzthvI1hQAJJonwEyyYPleKRWdUIqXuriZQsI5YEzgPltYXhOR7qFaOWbmQWQLaIUT7roKvs1iyGm6Xt1Bi1SzvWK1asvTC+YdOaPRLAGigtxpx4GazCuqtc8obqVQcDuAb3VMQGQA7LKYY6GxQWEm/EWRLb/Tt6qaGW9mznzpy+c80gZCPbyhK08kxXoEw/rKwQTzVzBbJYejm2EFw30Bm3qW/nqhQRuM+X1KZc//8rS6v74tr1YpfZ4JWuliWhPTkm1PaxxIoz5vb08jtNyZ0SGJY4jAZMVRVcXIlLBzWvTg+j3c+4aK8vshcgK2VwvyVxzLjsO9Xa/hPDymzKFvl0OzX1tVEZlIDCHMEHyAIJiWUCUyZ5QtSdT+htMu0yFoLs6kMvP0IQVpYE+P4Xy/BlbA==",
-      "allowShowUpdateAlert": true,
-      "isDefault": true,
-      "createdAt": 1769596193342,
-      "updatedAt": 1769842482257
-    },
+   
     
   ],
-  "defaultSourceId": "user_api_297_1769596193331"
+  "defaultSourceId": ""
 }
