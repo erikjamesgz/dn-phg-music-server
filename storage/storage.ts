@@ -25,6 +25,7 @@ interface StorageData {
 const STORAGE_KEY = "dn_music_scripts";
 const STORAGE_FILE = "./data/scripts.json";
 const CACHE_FILE = "./data/music_url_cache.json";
+const SOURCE_STATS_FILE = "./data/source_stats.json";
 
 const DEFAULT_SCRIPT_INFO: Partial<ScriptInfo> = {
   name: "",
@@ -898,5 +899,3 @@ interface ScriptSourceStats {
     [source: string]: SourceStats;
   };
 }
-
-const SOURCE_STATS_FILE = "./data/source_stats.json";
