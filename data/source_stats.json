@@ -5,20 +5,404 @@
       "fail": 5
     },
     "mg": {
-      "success": 60,
-      "fail": 12
+      "success": 73,
+      "fail": 13
     },
     "tx": {
-      "success": 46,
-      "fail": 17
+      "success": 65,
+      "fail": 18
     },
     "kg": {
       "success": 5,
+      "fail": 8
+    },
+    "wy": {
+      "success": 9,
+      "fail": 82
+    }
+  },
+  "user_api_643_1770922955097": {
+    "wy": {
+      "success": 3,
+      "fail": 1
+    },
+    "kg": {
+      "success": 0,
+      "fail": 1
+    },
+    "tx": {
+      "success": 1,
+      "fail": 0
+    },
+    "kw": {
+      "success": 1,
+      "fail": 0
+    }
+  },
+  "user_api_547_1771053203913": {
+    "kw": {
+      "success": 0,
+      "fail": 4
+    },
+    "kg": {
+      "success": 0,
+      "fail": 4
+    },
+    "tx": {
+      "success": 0,
+      "fail": 4
+    },
+    "mg": {
+      "success": 0,
+      "fail": 4
+    },
+    "wy": {
+      "success": 0,
+      "fail": 4
+    }
+  },
+  "user_api_663_1771055241273": {
+    "kw": {
+      "success": 0,
+      "fail": 1
+    },
+    "kg": {
+      "success": 0,
+      "fail": 1
+    },
+    "tx": {
+      "success": 0,
+      "fail": 1
+    },
+    "mg": {
+      "success": 0,
+      "fail": 1
+    },
+    "wy": {
+      "success": 0,
+      "fail": 1
+    }
+  },
+  "user_api_218_1771055354766": {
+    "kw": {
+      "success": 1,
+      "fail": 0
+    }
+  },
+  "user_api_995_1771055393969": {
+    "kw": {
+      "success": 0,
+      "fail": 1
+    },
+    "kg": {
+      "success": 0,
+      "fail": 1
+    },
+    "tx": {
+      "success": 0,
+      "fail": 1
+    },
+    "mg": {
+      "success": 0,
+      "fail": 1
+    },
+    "wy": {
+      "success": 0,
+      "fail": 1
+    }
+  },
+  "user_api_120_1771055716875": {
+    "kw": {
+      "success": 0,
+      "fail": 1
+    },
+    "kg": {
+      "success": 0,
+      "fail": 1
+    },
+    "tx": {
+      "success": 0,
+      "fail": 1
+    },
+    "mg": {
+      "success": 0,
+      "fail": 1
+    },
+    "wy": {
+      "success": 0,
+      "fail": 1
+    }
+  },
+  "user_api_713_1771056216529": {
+    "kw": {
+      "success": 2,
+      "fail": 0
+    }
+  },
+  "user_api_235_1771056309066": {
+    "kw": {
+      "success": 0,
+      "fail": 2
+    },
+    "kg": {
+      "success": 0,
+      "fail": 2
+    },
+    "tx": {
+      "success": 0,
+      "fail": 2
+    },
+    "mg": {
+      "success": 0,
+      "fail": 2
+    },
+    "wy": {
+      "success": 0,
+      "fail": 2
+    }
+  },
+  "user_api_516_1771056364420": {
+    "kw": {
+      "success": 1,
+      "fail": 0
+    }
+  },
+  "user_api_887_1771056449700": {
+    "kw": {
+      "success": 0,
+      "fail": 1
+    },
+    "kg": {
+      "success": 0,
+      "fail": 1
+    },
+    "tx": {
+      "success": 0,
+      "fail": 1
+    },
+    "mg": {
+      "success": 0,
+      "fail": 1
+    },
+    "wy": {
+      "success": 0,
+      "fail": 1
+    }
+  },
+  "user_api_289_1771056585182": {
+    "kw": {
+      "success": 0,
+      "fail": 2
+    },
+    "kg": {
+      "success": 0,
+      "fail": 2
+    },
+    "tx": {
+      "success": 0,
+      "fail": 2
+    },
+    "mg": {
+      "success": 0,
+      "fail": 2
+    },
+    "wy": {
+      "success": 0,
+      "fail": 2
+    }
+  },
+  "user_api_661_1771056653921": {
+    "kw": {
+      "success": 1,
+      "fail": 0
+    }
+  },
+  "user_api_204_1771057272863": {
+    "kw": {
+      "success": 1,
+      "fail": 0
+    }
+  },
+  "user_api_559_1771057478943": {
+    "kw": {
+      "success": 0,
+      "fail": 1
+    },
+    "kg": {
+      "success": 0,
+      "fail": 1
+    },
+    "tx": {
+      "success": 0,
+      "fail": 1
+    },
+    "mg": {
+      "success": 0,
+      "fail": 1
+    },
+    "wy": {
+      "success": 0,
+      "fail": 1
+    }
+  },
+  "user_api_112_1771057613228": {
+    "kw": {
+      "success": 0,
+      "fail": 2
+    },
+    "kg": {
+      "success": 0,
+      "fail": 2
+    },
+    "tx": {
+      "success": 0,
+      "fail": 2
+    },
+    "mg": {
+      "success": 0,
+      "fail": 2
+    },
+    "wy": {
+      "success": 0,
+      "fail": 2
+    }
+  },
+  "user_api_889_1771057836246": {
+    "kw": {
+      "success": 0,
+      "fail": 2
+    },
+    "kg": {
+      "success": 0,
+      "fail": 2
+    },
+    "tx": {
+      "success": 0,
+      "fail": 2
+    },
+    "mg": {
+      "success": 0,
+      "fail": 2
+    },
+    "wy": {
+      "success": 0,
+      "fail": 2
+    }
+  },
+  "user_api_076_1771057947256": {
+    "kw": {
+      "success": 1,
+      "fail": 0
+    }
+  },
+  "user_api_218_1771057973970": {
+    "kw": {
+      "success": 0,
+      "fail": 1
+    },
+    "kg": {
+      "success": 0,
+      "fail": 1
+    },
+    "tx": {
+      "success": 0,
+      "fail": 1
+    },
+    "mg": {
+      "success": 0,
+      "fail": 1
+    },
+    "wy": {
+      "success": 0,
+      "fail": 1
+    }
+  },
+  "user_api_180_1771078418428": {
+    "kw": {
+      "success": 0,
+      "fail": 3
+    },
+    "kg": {
+      "success": 0,
+      "fail": 3
+    },
+    "tx": {
+      "success": 0,
+      "fail": 3
+    },
+    "mg": {
+      "success": 0,
+      "fail": 3
+    },
+    "wy": {
+      "success": 0,
+      "fail": 3
+    }
+  },
+  "user_api_667_1771078470563": {
+    "kw": {
+      "success": 0,
+      "fail": 5
+    },
+    "kg": {
+      "success": 0,
+      "fail": 5
+    },
+    "tx": {
+      "success": 0,
+      "fail": 5
+    },
+    "mg": {
+      "success": 0,
       "fail": 5
     },
     "wy": {
-      "success": 6,
-      "fail": 61
+      "success": 0,
+      "fail": 5
+    }
+  },
+  "user_api_362_1771078512853": {
+    "kw": {
+      "success": 0,
+      "fail": 1
+    },
+    "kg": {
+      "success": 0,
+      "fail": 1
+    },
+    "tx": {
+      "success": 0,
+      "fail": 1
+    },
+    "mg": {
+      "success": 0,
+      "fail": 1
+    },
+    "wy": {
+      "success": 0,
+      "fail": 1
+    }
+  },
+  "user_api_215_1771082129691": {
+    "kw": {
+      "success": 3,
+      "fail": 5
+    },
+    "kg": {
+      "success": 0,
+      "fail": 6
+    },
+    "tx": {
+      "success": 0,
+      "fail": 6
+    },
+    "mg": {
+      "success": 1,
+      "fail": 5
+    },
+    "wy": {
+      "success": 0,
+      "fail": 5
     }
   }
 }

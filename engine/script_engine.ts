@@ -126,18 +126,54 @@ export class ScriptEngine {
     console.log('\n========== [ScriptEngine] getMusicUrl 开始 ==========');
     console.log('[ScriptEngine] source:', request.source);
     console.log('[ScriptEngine] action:', request.action);
-   // console.log('[ScriptEngine] info:', JSON.stringify(request.info, null, 2));
     console.log('[ScriptEngine] 可用的 sandboxes:', Array.from(this.sandboxes.keys()));
     console.log('[ScriptEngine] 可用的 activeScripts:', Array.from(this.activeScripts.keys()));
 
     const { source, info } = request;
-
     const triedScripts: string[] = [];
 
-    for (const [scriptId, sandbox] of this.sandboxes) {
-      //console.log('\n[ScriptEngine] 检查 sandbox:', scriptId);
-      //console.log('[ScriptEngine] sandbox.supportsSource(', source, '):', sandbox.supportsSource(source));
-                          console.log('[ScriptEngine] 2222');
+    const defaultScriptId = this.storage.getDefaultSource();
+    console.log('[ScriptEngine] 默认脚本:', defaultScriptId);
+
+    const sandboxEntries = Array.from(this.sandboxes.entries());
+    
+    if (defaultScriptId && this.sandboxes.has(defaultScriptId)) {
+      const defaultSandbox = this.sandboxes.get(defaultScriptId);
+      if (defaultSandbox && defaultSandbox.supportsSource(source)) {
+        console.log('[ScriptEngine] 优先使用默认脚本:', defaultScriptId);
+        triedScripts.push(defaultScriptId);
+        
+        try {
+          console.log('[ScriptEngine] 即将调用默认脚本 sandbox.request...');
+          const response = await defaultSandbox.request(request);
+          console.log('[ScriptEngine] 默认脚本 sandbox.request 执行完成');
+          
+          if (response && response.data && request.action === 'musicUrl' && (response.data as MusicUrlData).url) {
+            console.log('[ScriptEngine] 默认脚本获取成功，返回 response');
+            console.log('========== [ScriptEngine] getMusicUrl 结束 ==========\n');
+            return response;
+          }
+        } catch (error: any) {
+          console.error('[ScriptEngine] 默认脚本请求异常:', error.message);
+          if (error.message.includes('404') || error.message.includes('Not Found') || error.message.includes('API') || error.message.includes('服务器')) {
+            console.log('[ScriptEngine] 默认脚本失败，继续尝试其他脚本');
+          } else {
+            console.error('[ScriptEngine] 默认脚本抛出异常');
+            console.log('========== [ScriptEngine] getMusicUrl 结束 ==========\n');
+            throw error;
+          }
+        }
+      } else {
+        console.log('[ScriptEngine] 默认脚本不支持此音源:', source);
+      }
+    } else {
+      console.log('[ScriptEngine] 未找到默认脚本');
+    }
+
+    console.log('[ScriptEngine] 尝试其他脚本...');
+    
+    for (const [scriptId, sandbox] of sandboxEntries) {
+      if (scriptId === defaultScriptId) continue;
 
       try {
         if (sandbox.supportsSource(source)) {
@@ -149,20 +185,17 @@ export class ScriptEngine {
           console.log('[ScriptEngine] 即将执行 sandbox.request(request)...');
           const response = await sandbox.request(request);
           console.log('[ScriptEngine] sandbox.request 执行完成');
-          //console.log('[ScriptEngine] sandbox.request 返回:', JSON.stringify(response, null, 2));
           
           if (response && response.data && request.action === 'musicUrl' && (response.data as MusicUrlData).url) {
             console.log('[ScriptEngine] 获取成功，返回 response');
             console.log('========== [ScriptEngine] getMusicUrl 结束 ==========\n');
             return response;
           }
-        }else{
-                    console.log('[ScriptEngine] sandbox.supportsSource 不可用');
-
+        } else {
+          console.log('[ScriptEngine] sandbox.supportsSource 不可用');
         }
       } catch (error: any) {
         console.error('[ScriptEngine] sandbox.request 异常:', error.message);
-        console.error('[ScriptEngine] 异常堆栈:', error.stack);
         
         if (error.message.includes('404') || error.message.includes('Not Found') || error.message.includes('API') || error.message.includes('服务器')) {
           console.log('[ScriptEngine] 跳过此脚本，继续尝试下一个');
