@@ -894,41 +894,59 @@ export class ScriptStorage {
   async getApiKey(): Promise<string> {
     const envKey = Deno.env.get("API_KEY");
     if (envKey) {
+      console.log("[Storage] Using API_KEY from environment variable");
       await this.saveApiKey(envKey);
       return envKey;
     }
 
     if (this.kv) {
-      const result = await this.kv.get<string>(API_KEY_KV_KEY);
-      if (result.value) {
-        return result.value;
+      try {
+        const result = await this.kv.get<string>(API_KEY_KV_KEY);
+        if (result.value) {
+          console.log("[Storage] Loaded API key from KV");
+          return result.value;
+        }
+      } catch (error) {
+        console.error("[Storage] Failed to read API key from KV:", error);
       }
     }
 
-    try {
-      const fileContent = await Deno.readTextFile(API_KEY_FILE);
-      const data = JSON.parse(fileContent);
-      if (data.apiKey) {
-        return data.apiKey;
+    if (!isDenoDeploy) {
+      try {
+        const fileContent = await Deno.readTextFile(API_KEY_FILE);
+        const data = JSON.parse(fileContent);
+        if (data.apiKey) {
+          console.log("[Storage] Loaded API key from file");
+          return data.apiKey;
+        }
+      } catch {
+        // 文件不存在
       }
-    } catch {
-      // 文件不存在
     }
 
     const newKey = this.generateApiKey();
+    console.log("[Storage] Generated new API key:", newKey);
     await this.saveApiKey(newKey);
     return newKey;
   }
 
   private async saveApiKey(key: string): Promise<void> {
     if (this.kv) {
-      await this.kv.set(API_KEY_KV_KEY, key);
+      try {
+        await this.kv.set(API_KEY_KV_KEY, key);
+        console.log("[Storage] API key saved to KV");
+      } catch (error) {
+        console.error("[Storage] Failed to save API key to KV:", error);
+      }
     }
 
-    try {
-      await Deno.writeTextFile(API_KEY_FILE, JSON.stringify({ apiKey: key, updatedAt: Date.now() }, null, 2));
-    } catch (error) {
-      console.error("[Storage] Failed to save API key to file:", error);
+    if (!isDenoDeploy) {
+      try {
+        await Deno.writeTextFile(API_KEY_FILE, JSON.stringify({ apiKey: key, updatedAt: Date.now() }, null, 2));
+        console.log("[Storage] API key saved to file");
+      } catch (error) {
+        console.error("[Storage] Failed to save API key to file:", error);
+      }
     }
   }
 }
