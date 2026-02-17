@@ -27,7 +27,7 @@ const STORAGE_FILE = "./data/scripts.json";
 const CACHE_FILE = "./data/music_url_cache.json";
 const SOURCE_STATS_FILE = "./data/source_stats.json";
 const API_KEY_FILE = "./data/api_key.json";
-const API_KEY_KV_KEY = "api_key";
+const API_KEY_KV_KEY = ["api_key"];
 
 const DEFAULT_SCRIPT_INFO: Partial<ScriptInfo> = {
   name: "",
