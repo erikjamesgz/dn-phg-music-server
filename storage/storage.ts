@@ -892,9 +892,9 @@ export class ScriptStorage {
   }
 
   async getApiKey(): Promise<string> {
-    const envKey = Deno.env.get("API_KEY");
+    const envKey = Deno.env.get("API_KEY") || Deno.env.get("api_key");
     if (envKey) {
-      console.log("[Storage] Using API_KEY from environment variable");
+      console.log("[Storage] Using API_KEY from environment variable:", envKey);
       await this.saveApiKey(envKey);
       return envKey;
     }
