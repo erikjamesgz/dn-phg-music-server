@@ -83,17 +83,20 @@ export class APIRoutes {
   private lyricService: LyricService;
   private songListService: SongListService;
   private shortLinkService: ShortLinkService;
+  private apiKey: string;
 
   constructor(
     app: Application,
     handler: RequestHandler,
     storage: ScriptStorage,
-    engine: ScriptEngine
+    engine: ScriptEngine,
+    apiKey: string
   ) {
     this.app = app;
     this.handler = handler;
     this.storage = storage;
     this.engine = engine;
+    this.apiKey = apiKey;
     this.searchService = new SearchService();
     this.lyricService = new LyricService();
     this.songListService = new SongListService();
@@ -104,29 +107,26 @@ export class APIRoutes {
 
   private setupRoutes(): void {
     const router = this.app.getRouter();
+    const prefix = `/${this.apiKey}`;
 
     router.get("/", () => this.handleIndex());
-    router.get("/health", () => this.handleHealth());
     router.get("/api/status", (ctx) => this.handleStatus(ctx));
 
-    router.get("/api/scripts", (ctx) => this.handleListScripts(ctx));
-    router.post("/api/scripts", (ctx) => this.handleImportScript(ctx));
-    router.get("/api/scripts/loaded", (ctx) => this.handleGetLoadedScripts(ctx));
-    router.get("/api/scripts/:id", (ctx) => this.handleGetScript(ctx));
-    router.post("/api/scripts/delete", (ctx) => this.handleRemoveScript(ctx));
-    router.put("/api/scripts/:id", (ctx) => this.handleUpdateScript(ctx));
+    router.post(`${prefix}/api/scripts`, (ctx) => this.handleImportScript(ctx));
+    router.get(`${prefix}/api/scripts/loaded`, (ctx) => this.handleGetLoadedScripts(ctx));
+    router.post(`${prefix}/api/scripts/delete`, (ctx) => this.handleRemoveScript(ctx));
 
-    router.post("/api/scripts/import/url", (ctx) => this.handleImportScriptFromUrl(ctx));
-    router.post("/api/scripts/import/file", (ctx) => this.handleImportScriptFromFile(ctx));
+    router.post(`${prefix}/api/scripts/import/url`, (ctx) => this.handleImportScriptFromUrl(ctx));
+    router.post(`${prefix}/api/scripts/import/file`, (ctx) => this.handleImportScriptFromFile(ctx));
 
-    router.post("/api/scripts/default", (ctx) => this.handleSetDefaultSource(ctx));
-    router.get("/api/scripts/default", (ctx) => this.handleGetDefaultSource(ctx));
+    router.post(`${prefix}/api/scripts/default`, (ctx) => this.handleSetDefaultSource(ctx));
+    router.get(`${prefix}/api/scripts/default`, (ctx) => this.handleGetDefaultSource(ctx));
 
-    router.post("/api/cache/music-url/enable", (ctx) => this.handleSetMusicUrlCacheEnabled(ctx));
-    router.get("/api/cache/music-url/status", (ctx) => this.handleGetMusicUrlCacheStatus(ctx));
-    router.post("/api/cache/music-url/clear", (ctx) => this.handleClearMusicUrlCache(ctx));
+    router.post(`${prefix}/api/cache/music-url/enable`, (ctx) => this.handleSetMusicUrlCacheEnabled(ctx));
+    router.get(`${prefix}/api/cache/music-url/status`, (ctx) => this.handleGetMusicUrlCacheStatus(ctx));
+    router.post(`${prefix}/api/cache/music-url/clear`, (ctx) => this.handleClearMusicUrlCache(ctx));
 
-    router.post("/api/music/url", async (ctx) => {
+    router.post(`${prefix}/api/music/url`, async (ctx) => {
       console.log('\n========== [API] 收到 /api/music/url 请求 ==========');
       const startTime = Date.now();
       let response: Response;
@@ -151,7 +151,7 @@ export class APIRoutes {
         return ApiResponseBuilder.toResponse(ApiResponseBuilder.serverError(error.message || "Internal Server Error"), 500);
       }
     });
-    router.post("/api/music/lyric", async (ctx) => {
+    router.post(`${prefix}/api/music/lyric`, async (ctx) => {
       console.log('\n========== [API] 收到 /api/music/lyric 请求 ==========');
       const startTime = Date.now();
       try {
@@ -170,7 +170,7 @@ export class APIRoutes {
         return ApiResponseBuilder.toResponse(ApiResponseBuilder.serverError(error.message || "Internal Server Error"), 500);
       }
     });
-    router.post("/api/music/pic", async (ctx) => {
+    router.post(`${prefix}/api/music/pic`, async (ctx) => {
       console.log('\n========== [API] 收到 /api/music/pic 请求 ==========');
       const startTime = Date.now();
       let response: Response;
@@ -191,20 +191,12 @@ export class APIRoutes {
       }
     });
 
-    router.get("/api/search", (ctx) => this.handleSearch(ctx));
+    router.get(`${prefix}/api/search`, (ctx) => this.handleSearch(ctx));
 
-    router.post("/api/request", (ctx) => this.handleRequest(ctx));
-    router.delete("/api/request/:requestKey", (ctx) => this.handleCancelRequest(ctx));
+    router.post(`${prefix}/api/request`, (ctx) => this.handleRequest(ctx));
+    router.delete(`${prefix}/api/request/:requestKey`, (ctx) => this.handleCancelRequest(ctx));
 
-    router.get("/api/export/:id", (ctx) => this.handleExportScript(ctx));
-    router.post("/api/export/all", (ctx) => this.handleExportAllScripts(ctx));
-
-    router.post("/api/scripts/:id/update-alert", (ctx) => this.handleSetUpdateAlert(ctx));
-
-    router.get("/api/test/music-url", (ctx) => this.handleTestMusicUrl(ctx));
-
-    // 新增：直接调用平台API获取歌词（不走第三方脚本）
-    router.post("/api/music/lyric/direct", async (ctx) => {
+    router.post(`${prefix}/api/music/lyric/direct`, async (ctx) => {
       console.log('\n========== [API] 收到 /api/music/lyric/direct 请求 ==========');
       const startTime = Date.now();
       try {
@@ -221,8 +213,7 @@ export class APIRoutes {
       }
     });
 
-    // 歌单详情接口
-    router.post("/api/songlist/detail", async (ctx) => {
+    router.post(`${prefix}/api/songlist/detail`, async (ctx) => {
       console.log('\n========== [API] 收到 /api/songlist/detail 请求 ==========');
       const startTime = Date.now();
       try {
@@ -239,8 +230,7 @@ export class APIRoutes {
       }
     });
 
-    // 短链接歌单详情接口
-    router.post("/api/songlist/detail/by-link", async (ctx) => {
+    router.post(`${prefix}/api/songlist/detail/by-link`, async (ctx) => {
       console.log('\n========== [API] 收到 /api/songlist/detail/by-link 请求 ==========');
       const startTime = Date.now();
       try {
@@ -259,6 +249,7 @@ export class APIRoutes {
   }
 
   private async handleIndex(): Promise<Response> {
+    const prefix = this.apiKey;
     const html = `
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -298,11 +289,23 @@ export class APIRoutes {
     .post { background: #49cc90; color: white; }
     .put { background: #fca130; color: white; }
     .delete { background: #f93e3e; color: white; }
+    .api-prefix { background: #fff3cd; border: 1px solid #ffc107; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+    .api-prefix code { font-size: 1.2em; font-weight: bold; color: #856404; }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>🎵 洛雪音乐第三方音源后台</h1>
+
+    <div class="card">
+      <h2>🔑 API 访问密钥</h2>
+      <div class="api-prefix">
+        <p>所有 API 请求需要添加前缀：</p>
+        <p><code>/${prefix}</code></p>
+        <p style="margin-top:10px;color:#666;">示例：<code>/${prefix}/api/music/url</code></p>
+      </div>
+      <p style="color:#666;font-size:0.9em;">设置环境变量 <code>API_KEY</code> 可自定义密钥</p>
+    </div>
 
     <div class="card">
       <h2>服务状态</h2>
@@ -325,28 +328,24 @@ export class APIRoutes {
     <div class="card">
       <h2>📜 脚本管理</h2>
       <pre>
-<span class="api-method get">GET</span>  <code>/api/scripts</code>                    - 列出所有脚本
-<span class="api-method get">GET</span>  <code>/api/scripts/loaded</code>             - 获取已加载音源列表
-<span class="api-method get">GET</span>  <code>/api/scripts/:id</code>                - 获取单个脚本
-<span class="api-method get">GET</span>  <code>/api/scripts/default</code>            - 获取默认音源
+<span class="api-method get">GET</span>  <code>/${prefix}/api/scripts/loaded</code>       - 获取已加载音源列表
+<span class="api-method get">GET</span>  <code>/${prefix}/api/scripts/default</code>      - 获取默认音源
 
-<span class="api-method post">POST</span> <code>/api/scripts</code>                    - 导入脚本(内容)
-<span class="api-method post">POST</span> <code>/api/scripts/import/url</code>         - 从URL导入脚本
-<span class="api-method post">POST</span> <code>/api/scripts/import/file</code>        - 从文件导入脚本
+<span class="api-method post">POST</span> <code>/${prefix}/api/scripts</code>                - 导入脚本(内容)
+<span class="api-method post">POST</span> <code>/${prefix}/api/scripts/import/url</code>     - 从URL导入脚本
+<span class="api-method post">POST</span> <code>/${prefix}/api/scripts/import/file</code>    - 从文件导入脚本
 
-<span class="api-method put">PUT</span>  <code>/api/scripts/:id</code>                - 更新脚本
-<span class="api-method post">POST</span> <code>/api/scripts/default</code>           - 设置默认音源
-
-<span class="api-method post">POST</span> <code>/api/scripts/delete</code>              - 删除脚本
+<span class="api-method post">POST</span> <code>/${prefix}/api/scripts/default</code>       - 设置默认音源
+<span class="api-method post">POST</span> <code>/${prefix}/api/scripts/delete</code>        - 删除脚本
 </pre>
     </div>
 
     <div class="card">
       <h2>🎵 音乐播放</h2>
       <pre>
-<span class="api-method post">POST</span> <code>/api/music/url</code>     - 获取音乐播放URL
-<span class="api-method post">POST</code> /api/music/lyric</code>    - 获取歌词
-<span class="api-method post">POST</code> /api/music/pic</code>      - 获取封面图
+<span class="api-method post">POST</span> <code>/${prefix}/api/music/url</code>     - 获取音乐播放URL
+<span class="api-method post">POST</span> <code>/${prefix}/api/music/lyric</code>   - 获取歌词
+<span class="api-method post">POST</span> <code>/${prefix}/api/music/pic</code>     - 获取封面图
 
 请求参数示例:
 {
@@ -366,16 +365,8 @@ export class APIRoutes {
     <div class="card">
       <h2>📡 请求处理</h2>
       <pre>
-<span class="api-method post">POST</span> <code>/api/request</code>              - 发送请求
-<span class="api-method delete">DELETE</code> /api/request/:key</code>    - 取消请求
-</pre>
-    </div>
-
-    <div class="card">
-      <h2>📤 导出</h2>
-      <pre>
-<span class="api-method get">GET</span>  <code>/api/export/:id</code>           - 导出单个脚本
-<span class="api-method post">POST</code> /api/export/all</code>         - 导出所有脚本
+<span class="api-method post">POST</span> <code>/${prefix}/api/request</code>            - 发送请求
+<span class="api-method delete">DELETE</span> <code>/${prefix}/api/request/:key</code>  - 取消请求
 </pre>
     </div>
 
@@ -384,18 +375,19 @@ export class APIRoutes {
       <button class="btn" onclick="refreshStatus()">刷新状态</button>
       <button class="btn" onclick="listScripts()">查看脚本列表</button>
       <button class="btn" onclick="importFromUrl()">从URL导入</button>
-      <button class="btn" onclick="testMusicUrl()">测试播放URL</button>
     </div>
   </div>
 
   <script>
+    const API_PREFIX = '/${prefix}';
+    
     async function refreshStatus() {
       try {
         const res = await fetch('/api/status');
         const data = await res.json();
         document.getElementById('scriptCount').textContent = data.scriptCount;
         
-        const defaultRes = await fetch('/api/scripts/default');
+        const defaultRes = await fetch(API_PREFIX + '/api/scripts/default');
         const defaultData = await defaultRes.json();
         document.getElementById('activeSource').textContent = defaultData.name || '未设置';
       } catch (e) {
@@ -405,7 +397,7 @@ export class APIRoutes {
 
     async function listScripts() {
       try {
-        const res = await fetch('/api/scripts/loaded');
+        const res = await fetch(API_PREFIX + '/api/scripts/loaded');
         const scripts = await res.json();
         alert('已在控制台输出音源列表');
       } catch (e) {
@@ -418,7 +410,7 @@ export class APIRoutes {
       if (!url) return;
       
       try {
-        const res = await fetch('/api/scripts/import/url', {
+        const res = await fetch(API_PREFIX + '/api/scripts/import/url', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url })
@@ -435,26 +427,6 @@ export class APIRoutes {
       }
     }
 
-    async function testMusicUrl() {
-      try {
-        const res = await fetch('/api/music/url', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            source: 'kw',
-            songmid: 'test123',
-            name: '测试歌曲',
-            singer: '测试歌手',
-            quality: '128k'
-          })
-        });
-        const data = await res.json();
-        alert('已在控制台输出结果');
-      } catch (e) {
-        alert('测试失败: ' + e.message);
-      }
-    }
-
     refreshStatus();
     setInterval(refreshStatus, 5000);
   </script>
@@ -467,13 +439,6 @@ export class APIRoutes {
     });
   }
 
-  private async handleHealth(): Promise<Response> {
-    return ApiResponseBuilder.toResponse(ApiResponseBuilder.success({
-      status: "healthy",
-      timestamp: Date.now(),
-    }));
-  }
-
   private async handleStatus(_ctx: any): Promise<Response> {
     const defaultSource = this.storage.getDefaultSourceInfo();
     return ApiResponseBuilder.toResponse(ApiResponseBuilder.success({
@@ -482,15 +447,6 @@ export class APIRoutes {
       timestamp: Date.now(),
       defaultSource: defaultSource,
     }));
-  }
-
-  private async handleListScripts(_ctx: any): Promise<Response> {
-    try {
-      const scripts = this.storage.getScripts();
-      return ApiResponseBuilder.toResponse(ApiResponseBuilder.success(scripts));
-    } catch (error: any) {
-      return ApiResponseBuilder.toResponse(ApiResponseBuilder.error(error.message, 500));
-    }
   }
 
   private async handleGetLoadedScripts(_ctx: any): Promise<Response> {
@@ -602,21 +558,6 @@ export class APIRoutes {
     }
   }
 
-  private async handleGetScript(ctx: any): Promise<Response> {
-    try {
-      const { id } = ctx.params;
-      const script = await this.storage.getScript(id);
-
-      if (!script) {
-        return ApiResponseBuilder.toResponse(ApiResponseBuilder.notFound("脚本不存在"), 404);
-      }
-
-      return ApiResponseBuilder.toResponse(ApiResponseBuilder.success(script));
-    } catch (error: any) {
-      return ApiResponseBuilder.toResponse(ApiResponseBuilder.error(error.message, 500));
-    }
-  }
-
   private async handleRemoveScript(ctx: any): Promise<Response> {
     try {
       const body = await ctx.req.json();
@@ -644,32 +585,6 @@ export class APIRoutes {
         },
         scripts: loadedScripts,
       }, removed ? "脚本已删除" : "脚本不存在"));
-    } catch (error: any) {
-      return ApiResponseBuilder.toResponse(ApiResponseBuilder.error(error.message, 500));
-    }
-  }
-
-  private async handleUpdateScript(ctx: any): Promise<Response> {
-    try {
-      const { id } = ctx.params;
-      const body = await ctx.req.json();
-
-      if (!body.script) {
-        return ApiResponseBuilder.toResponse(ApiResponseBuilder.error("缺少脚本内容", 400));
-      }
-
-      const updated = await this.storage.updateScript(id, body.script);
-
-      if (!updated) {
-        return ApiResponseBuilder.toResponse(ApiResponseBuilder.notFound("脚本不存在"));
-      }
-
-      await this.engine.unloadScript(id);
-      await this.engine.loadScript(updated);
-
-      return ApiResponseBuilder.toResponse(ApiResponseBuilder.success({
-        apiInfo: updated,
-      }, "脚本更新成功"));
     } catch (error: any) {
       return ApiResponseBuilder.toResponse(ApiResponseBuilder.error(error.message, 500));
     }
@@ -1649,98 +1564,6 @@ export class APIRoutes {
       return ApiResponseBuilder.toResponse(ApiResponseBuilder.success({
         requestKey,
       }, "请求已取消"));
-    } catch (error: any) {
-      return ApiResponseBuilder.toResponse(ApiResponseBuilder.serverError(error.message));
-    }
-  }
-
-  private async handleExportScript(ctx: any): Promise<Response> {
-    try {
-      const { id } = ctx.params;
-      const script = await this.storage.exportScript(id);
-
-      if (!script) {
-        return ApiResponseBuilder.toResponse(ApiResponseBuilder.notFound("脚本不存在"), 404);
-      }
-
-      return ApiResponseBuilder.toTextResponse(script, "text/plain; charset=utf-8");
-    } catch (error: any) {
-      return ApiResponseBuilder.toResponse(ApiResponseBuilder.serverError(error.message));
-    }
-  }
-
-  private async handleExportAllScripts(_ctx: any): Promise<Response> {
-    try {
-      const scripts = await this.storage.exportAllScripts();
-      const combined = scripts.join("\n\n// --- 分隔线 ---\n\n");
-
-      return ApiResponseBuilder.toTextResponse(combined, "text/plain; charset=utf-8");
-    } catch (error: any) {
-      return ApiResponseBuilder.toResponse(ApiResponseBuilder.serverError(error.message));
-    }
-  }
-
-  private async handleSetUpdateAlert(ctx: any): Promise<Response> {
-    try {
-      const { id } = ctx.params;
-      const body = await ctx.req.json();
-      const enabled = body.enabled ?? true;
-
-      const success = await this.storage.setAllowShowUpdateAlert(id, enabled);
-
-      return ApiResponseBuilder.toResponse(ApiResponseBuilder.success({
-        id,
-        enabled,
-      }, success ? "设置已更新" : "脚本不存在"));
-    } catch (error: any) {
-      return ApiResponseBuilder.toResponse(ApiResponseBuilder.serverError(error.message));
-    }
-  }
-
-  private async handleTestMusicUrl(_ctx: any): Promise<Response> {
-    try {
-      await this.storage.ready();
-
-      const allScripts = this.storage.getLoadedScripts();
-      const kwScript = allScripts.find(script =>
-        script.supportedSources.includes("kw")
-      );
-
-      if (!kwScript) {
-        return ApiResponseBuilder.toResponse(ApiResponseBuilder.error("未找到 kw 音源脚本", 404));
-      }
-
-      const musicInfo = {
-        id: "12442905",
-        name: "测试歌曲",
-        singer: "测试歌手",
-        source: "kw",
-        interval: null,
-        songmid: "12442905",
-        meta: {
-          songId: "12442905",
-          albumName: "",
-          picUrl: null,
-        },
-      };
-
-      const result = await this.handler.handleRequest({
-        requestKey: `test_${Date.now()}`,
-        data: {
-          source: "kw",
-          action: "musicUrl",
-          info: {
-            type: "128k",
-            musicInfo,
-          },
-        },
-      });
-
-      return ApiResponseBuilder.toResponse(ApiResponseBuilder.success({
-        scripts: allScripts,
-        kwScriptFound: !!kwScript,
-        result,
-      }, "测试完成"));
     } catch (error: any) {
       return ApiResponseBuilder.toResponse(ApiResponseBuilder.serverError(error.message));
     }

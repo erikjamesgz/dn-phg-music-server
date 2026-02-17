@@ -9,9 +9,13 @@ const storage = new ScriptStorage();
 const engine = new ScriptEngine(storage);
 const handler = new RequestHandler(engine, storage);
 
-new APIRoutes(app, handler, storage, engine);
-
 await storage.ready();
+
+const apiKey = await storage.getApiKey();
+console.log(`\n🔑 API前缀: /${apiKey}`);
+console.log(`   完整路径示例: /${apiKey}/api/music/url\n`);
+
+new APIRoutes(app, handler, storage, engine, apiKey);
 
 const port = Deno.env.get("PORT") || "8080";
 

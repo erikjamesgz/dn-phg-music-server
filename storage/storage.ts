@@ -26,6 +26,8 @@ const STORAGE_KEY = "dn_music_scripts";
 const STORAGE_FILE = "./data/scripts.json";
 const CACHE_FILE = "./data/music_url_cache.json";
 const SOURCE_STATS_FILE = "./data/source_stats.json";
+const API_KEY_FILE = "./data/api_key.json";
+const API_KEY_KV_KEY = "api_key";
 
 const DEFAULT_SCRIPT_INFO: Partial<ScriptInfo> = {
   name: "",
@@ -878,6 +880,56 @@ export class ScriptStorage {
   async getSourceStatsForScript(scriptId: string): Promise<{ [source: string]: SourceStats }> {
     const stats = await this.getSourceStats();
     return stats[scriptId] || {};
+  }
+
+  private generateApiKey(): string {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let result = '';
+    for (let i = 0; i < 32; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+  }
+
+  async getApiKey(): Promise<string> {
+    const envKey = Deno.env.get("API_KEY");
+    if (envKey) {
+      await this.saveApiKey(envKey);
+      return envKey;
+    }
+
+    if (this.kv) {
+      const result = await this.kv.get<string>([API_KEY_KV_KEY]);
+      if (result.value) {
+        return result.value;
+      }
+    }
+
+    try {
+      const fileContent = await Deno.readTextFile(API_KEY_FILE);
+      const data = JSON.parse(fileContent);
+      if (data.apiKey) {
+        return data.apiKey;
+      }
+    } catch {
+      // 文件不存在
+    }
+
+    const newKey = this.generateApiKey();
+    await this.saveApiKey(newKey);
+    return newKey;
+  }
+
+  private async saveApiKey(key: string): Promise<void> {
+    if (this.kv) {
+      await this.kv.set([API_KEY_KV_KEY], key);
+    }
+
+    try {
+      await Deno.writeTextFile(API_KEY_FILE, JSON.stringify({ apiKey: key, updatedAt: Date.now() }, null, 2));
+    } catch (error) {
+      console.error("[Storage] Failed to save API key to file:", error);
+    }
   }
 }
 

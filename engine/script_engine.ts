@@ -1,5 +1,5 @@
 import { Sandbox } from "./sandbox.ts";
-import { LXGlobal } from "./lx_global.ts";
+import { ScriptGlobal } from "./script_global.ts";
 import { RequestManager } from "./request_manager.ts";
 
 export interface ScriptInfo {

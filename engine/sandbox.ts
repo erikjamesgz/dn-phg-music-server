@@ -399,11 +399,9 @@ export class Sandbox {
                 console.log('[Sandbox] lx.send === send:', lx.send === send);
                 console.log('[Sandbox] typeof lx.on:', typeof lx.on);
                 
-                // Call the callback
                 callback.call(this, null, respObj, body);
                 console.log('[Sandbox] Callback executed successfully');
                 
-                // Check if lx.send was called
                 console.log('[Sandbox] After callback, isInitedApi:', isInitedApi);
                 
               } catch (err) {
@@ -413,12 +411,22 @@ export class Sandbox {
             } else {
               console.log('[Sandbox] No callback provided');
             }
+          }).catch((arrayBufferError: any) => {
+            console.error('[Sandbox] Array buffer error:', arrayBufferError.message);
+            if (callback) {
+              callback.call(this, arrayBufferError, null, null);
+            }
           });
         }).catch((error: any) => {
           clearTimeout(timeoutId);
           console.error('[Sandbox] Request error:', error.message);
           if (callback) {
-            callback.call(this, error, null, null);
+            try {
+              callback.call(this, error, null, null);
+            } catch (callbackError: any) {
+              console.error('[Sandbox] Error in callback during error handling:', callbackError.message);
+              onError(callbackError.message);
+            }
           }
         });
 

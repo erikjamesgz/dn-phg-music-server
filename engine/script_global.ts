@@ -34,14 +34,14 @@ const supportActions: Record<string, string[]> = {
   local: ['musicUrl', 'lyric', 'pic'],
 };
 
-interface LXEvents {
+interface ScriptEvents {
   request: ((data: { source: string; action: string; info: any }) => Promise<any>) | null;
 }
 
-export class LXGlobal {
+export class ScriptGlobal {
   private scriptInfo: ScriptInfo;
   private requestManager: RequestManager;
-  private events: LXEvents = { request: null };
+  private events: ScriptEvents = { request: null };
   private context: any;
   private requestHandler: ((data: MusicUrlRequest) => Promise<MusicUrlResponse | null>) | null = null;
   private registeredSources: Map<string, { actions: string[]; qualitys: string[] }> = new Map();
@@ -133,7 +133,7 @@ export class LXGlobal {
               try {
                 callback.call(self, null, respObj, bodyData);
               } catch (err: any) {
-                console.log('[LX] request callback error:', err.message);
+                console.log('[PHG] request callback error:', err.message);
               }
             }
           } catch (error: any) {
@@ -142,7 +142,7 @@ export class LXGlobal {
               try {
                 callback.call(self, error, null, null);
               } catch (err: any) {
-                console.log('[LX] request callback error:', err.message);
+                console.log('[PHG] request callback error:', err.message);
               }
             }
           }
@@ -247,12 +247,12 @@ export class LXGlobal {
 
   private handleInit(context: any, info: any): void {
     if (!info) {
-      console.log('[LX] Missing required parameter init info');
+      console.log('[PHG] Missing required parameter init info');
       return;
     }
 
     if (info.openDevTools === true) {
-      console.log('[LX] openDevTools requested (not implemented in server environment)');
+      console.log('[PHG] openDevTools requested (not implemented in server environment)');
     }
 
     this.registeredSources.clear();
@@ -283,11 +283,11 @@ export class LXGlobal {
         }
       }
     } catch (error: any) {
-      console.log('[LX] handleInit error:', error);
+      console.log('[PHG] handleInit error:', error);
       return;
     }
 
-    console.log('[LX] Script initialized:', sourceInfo);
+    console.log('[PHG] Script initialized:', sourceInfo);
   }
 
   private handleUpdateAlert(data: any, resolve: (value: void) => void, reject: (reason?: any) => void): void {
@@ -304,7 +304,7 @@ export class LXGlobal {
       data.log = data.log.substring(0, 1024) + '...';
     }
 
-    console.log('[LX] Update Alert:', {
+    console.log('[PHG] Update Alert:', {
       log: data.log,
       updateUrl: data.updateUrl,
     });
@@ -327,7 +327,7 @@ export class LXGlobal {
       switch (data.action) {
         case 'musicUrl':
           if (typeof response !== 'string' || response.length > 2048 || !/^https?:/.test(response)) {
-            console.error('[LX] musicUrl validation failed:', {
+            console.error('[PHG] musicUrl validation failed:', {
               responseType: typeof response,
               responseLength: typeof response === 'string' ? response.length : 'N/A',
               isValidUrl: typeof response === 'string' && /^https?:/.test(response),
@@ -353,7 +353,7 @@ export class LXGlobal {
 
         case 'pic':
           if (typeof response !== 'string' || response.length > 2048 || !/^https?:/.test(response)) {
-            console.error('[LX] pic validation failed:', {
+            console.error('[PHG] pic validation failed:', {
               responseType: typeof response,
               responseLength: typeof response === 'string' ? response.length : 'N/A',
               isValidUrl: typeof response === 'string' && /^https?:/.test(response),
@@ -371,14 +371,14 @@ export class LXGlobal {
           throw new Error(`Unknown action: ${data.action}`);
       }
     } catch (error: any) {
-      console.error('[LX] handleRequest error:', error);
+      console.error('[PHG] handleRequest error:', error);
       throw error;
     }
   }
 
   private verifyLyricInfo(info: any): any {
     if (typeof info !== 'object' || typeof info.lyric !== 'string') {
-      console.error('[LX] lyric validation failed:', {
+      console.error('[PHG] lyric validation failed:', {
         infoType: typeof info,
         isObject: typeof info === 'object' && info !== null,
         lyricType: typeof info?.lyric,
@@ -388,7 +388,7 @@ export class LXGlobal {
       throw new Error('Invalid lyric data format');
     }
     if (info.lyric.length > 51200) {
-      console.error('[LX] lyric too long:', info.lyric.length);
+      console.error('[PHG] lyric too long:', info.lyric.length);
       throw new Error('Lyric data exceeds maximum length');
     }
     return {
@@ -413,7 +413,7 @@ export class LXGlobal {
       
       return encrypted.ciphertext;
     } catch (error: any) {
-      console.log('[LX] aesEncrypt error:', error.message);
+      console.log('[PHG] aesEncrypt error:', error.message);
       throw new Error(error.message);
     }
   }
@@ -434,7 +434,7 @@ export class LXGlobal {
       
       return result.buffer;
     } catch (error: any) {
-      console.log('[LX] rsaEncrypt error:', error.message);
+      console.log('[PHG] rsaEncrypt error:', error.message);
       throw new Error(error.message);
     }
   }
@@ -443,7 +443,7 @@ export class LXGlobal {
     try {
       return CryptoJS.MD5(str).toString(CryptoJS.enc.Hex);
     } catch (error: any) {
-      console.log('[LX] md5 error:', error.message);
+      console.log('[PHG] md5 error:', error.message);
       throw new Error(error.message);
     }
   }
@@ -454,7 +454,7 @@ export class LXGlobal {
       const inflated = pako.inflate(bufferArray);
       return inflated;
     } catch (error: any) {
-      console.log('[LX] inflate error:', error.message);
+      console.log('[PHG] inflate error:', error.message);
       throw new Error(error.message);
     }
   }
@@ -465,7 +465,7 @@ export class LXGlobal {
       const deflated = pako.deflate(dataArray);
       return deflated;
     } catch (error: any) {
-      console.log('[LX] deflate error:', error.message);
+      console.log('[PHG] deflate error:', error.message);
       throw new Error(error.message);
     }
   }
@@ -497,7 +497,7 @@ export class LXGlobal {
       
       return result;
     } catch (error: any) {
-      console.log('[LX] aesEncryptSync error:', error.message);
+      console.log('[PHG] aesEncryptSync error:', error.message);
       throw new Error(error.message);
     }
   }
@@ -518,7 +518,7 @@ export class LXGlobal {
       
       return result;
     } catch (error: any) {
-      console.log('[LX] rsaEncryptSync error:', error.message);
+      console.log('[PHG] rsaEncryptSync error:', error.message);
       throw new Error(error.message);
     }
   }
@@ -527,7 +527,7 @@ export class LXGlobal {
     try {
       return CryptoJS.MD5(str).toString(CryptoJS.enc.Hex);
     } catch (error: any) {
-      console.log('[LX] md5Sync error:', error.message);
+      console.log('[PHG] md5Sync error:', error.message);
       throw new Error(error.message);
     }
   }

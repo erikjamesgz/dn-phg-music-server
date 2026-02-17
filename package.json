@@ -1,5 +1,5 @@
 {
-  "name": "dn_music_server",
+  "name": "dn_phg_music_server",
   "version": "1.0.0",
   "description": "Deno music server",
   "dependencies": {
