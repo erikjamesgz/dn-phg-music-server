@@ -690,18 +690,18 @@ export class APIRoutes {
 
     try {
       const body = await ctx.req.json();
-      console.log('[API] ========== 原始请求参数 ==========');
-      console.log('[API] body.source:', body.source);
-      console.log('[API] body.quality:', body.quality);
-      console.log('[API] body.name:', body.name);
-      console.log('[API] body.singer:', body.singer);
+      console.log('[API] 请求参数:', JSON.stringify(body, null, 2));
+
+      // ====== 添加关键日志 ======
+      console.log('[API] ====== 关键参数分析 ======');
+      console.log('[API] body.source (原始):', body.source);
+      console.log('[API] body.musicInfo:', body.musicInfo);
+      console.log('[API] body.musicInfo?.source:', body.musicInfo?.source);
       console.log('[API] body.songmid:', body.songmid);
       console.log('[API] body.id:', body.id);
       console.log('[API] body.songId:', body.songId);
-      console.log('[API] body.hash:', body.hash);
-      console.log('[API] body.musicInfo:', JSON.stringify(body.musicInfo, null, 2));
-      console.log('[API] body.allowToggleSource:', body.allowToggleSource);
-      console.log('[API] ==========================================');
+      console.log('[API] ====== 关键参数分析结束 ======');
+      // ====== 关键日志结束 ======
 
       const requiredFields = ['source', 'quality'];
       for (const field of requiredFields) {
@@ -714,12 +714,9 @@ export class APIRoutes {
       const allowToggleSource = body.allowToggleSource !== false;
       const excludeSources = body.excludeSources || [];
 
-      console.log('[API] ========== source 解析过程 ==========');
-      console.log('[API] 优先级: musicInfo.source > musicInfo.id > source');
-      console.log('[API] body.musicInfo?.source:', body.musicInfo?.source);
-      console.log('[API] body.source:', body.source);
-      console.log('[API] 最终使用的 source:', body.musicInfo?.source || body.source);
-      console.log('[API] ==========================================');
+      // 确定实际使用的 source（用于传递给脚本）
+      const actualSource = body.musicInfo?.source || body.source;
+      console.log('[API] 实际使用的 source (传递给脚本):', actualSource);
 
       const songId = body.songmid || body.id || body.songId || body.musicInfo?.id || body.musicInfo?.songmid || body.musicInfo?.hash || '';
       console.log('[API] songId 计算过程:');
