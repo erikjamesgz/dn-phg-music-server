@@ -1,8 +1,9 @@
 {
-  "name": "dn-music-server",
+  "name": "dn_phg_music_server",
   "version": "1.0.0",
   "description": "洛雪音乐第三方音源后台 - Deno Deploy 实现",
   "type": "module",
+  "exports": "./main.ts",
   "nodeModulesDir": "auto",
   "scripts": {
     "start": "deno run --allow-all --watch main.ts",

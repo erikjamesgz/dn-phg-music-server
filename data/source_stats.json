@@ -385,24 +385,24 @@
   },
   "user_api_215_1771082129691": {
     "kw": {
-      "success": 239,
-      "fail": 17
+      "success": 522,
+      "fail": 29
     },
     "kg": {
       "success": 0,
-      "fail": 63
+      "fail": 247
     },
     "tx": {
-      "success": 343,
-      "fail": 43
+      "success": 1055,
+      "fail": 149
     },
     "mg": {
-      "success": 94,
-      "fail": 22
+      "success": 207,
+      "fail": 110
     },
     "wy": {
-      "success": 47,
-      "fail": 25
+      "success": 99,
+      "fail": 257
     }
   }
 }
