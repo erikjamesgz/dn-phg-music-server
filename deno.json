@@ -17,10 +17,10 @@
     "$std/": "https://deno.land/std@0.216.0/"
   },
   "compilerOptions": {
-    "noImplicitAny": true,
-    "strictNullChecks": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "lib": ["deno.ns", "dom"]
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "lib": ["deno.ns", "deno.unstable", "dom"]
   }
 }

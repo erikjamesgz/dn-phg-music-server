@@ -10,46 +10,43 @@
 
 ### 部署步骤
 
-**1. Fork 项目**
+1. **Fork 项目**
+   
+   Github打开[本项目](https://github.com/erikjamesgz/dn-phg-music-server) 点击右上角 Fork 按钮，将本项目 Fork 到你的 GitHub 账号
 
-打开 [本项目](https://github.com/erikjamesgz/dn-phg-music-server)，点击右上角 Fork 按钮
+2. **登录 Deno**
+   
+   打开 [Deno 官网](https://console.deno.com/)，使用 GitHub 账号登录
 
-**2. 登录 Deno**
+3. **创建项目**
+   
+   - 打开 [Deno 控制台](https://console.deno.com/) ，点击 "New APP"
+   - 授权并选择你 Fork 的本项目
+   - 一路下一步完成部署
 
-打开 [Deno](https://console.deno.com/)，使用 GitHub 账号登录
+4. **获取服务地址**
+   
+   - 部署成功后，点击项目详情页左侧菜单的 "Overview"
+   - 然后点击项目名右侧的“PRODUCTION URL” 预览
+   - 再然后再在浏览器中复制浏览器地址栏的链接，格式如：
+   ```
+   https://xxxxx-dn-phg-musi-xx.deno.dev/
+   ```
 
-**3. 创建项目并部署**
+5. **获取 API Key**
+   
+   - 回到项目详情页，左侧菜单栏找到 "Logs" 选项 
+   - 并在日志中搜索 `["API前缀"]`
+   - 找到 `["api_key"]` 对应的值（32位字符串）
 
-打开 [Deno 控制台](https://console.deno.com/)
-
-- 点击 "New APP"
-- 授权并选择你 Fork 的本项目
-- 一路下一步完成部署
-
-**4. 获取服务地址**
-
-部署成功后：
-- 在项目详情页面 点击左侧菜单 "Overview"
-- 点击项目名字右侧的 "PRODUCTION URL" 预览
-- 复制浏览器地址栏的链接，格式如：
-  ```
-  https://xxxxx-dn-phg-musi-xx.deno.dev/
-  ```
-
-**5. 获取 API Key**
-
-- 在项目详情页面点击左侧菜单 "Logs"
-- 在日志中搜索 `API前缀`
-- 找到对应的 32 位字符串
-
-**6. 拼接完整地址**
-
-将服务地址和 API Key 拼接：
-```
-https://xxxxx-dn-phg-musi-xx.deno.dev/你的API_KEY
-```
-
-此链接可直接粘贴到拼好歌小程序的服务器设置中使用。
+6. **拼接完整地址**
+   
+   将服务地址和 API Key 拼接，得到完整的服务器链接：
+   ```
+   https://xxxxx-dn-phg-musi-xx.deno.dev/你的API_KEY
+   ```
+   
+   此链接可直接粘贴到拼好歌小程序的服务器设置中使用。
 
 ### 费用说明
 
