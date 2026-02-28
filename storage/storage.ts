@@ -89,10 +89,8 @@ export class ScriptStorage {
             this.defaultSourceId = data.defaultSourceId || null;
             console.log(`[Storage] Loaded ${this.scripts.size} scripts from KV`);
           }
-        } else {
-          console.log("[Storage] Deno Deploy environment but KV not available, scripts will be empty");
+          return;
         }
-        return;
       }
 
       // 本地环境使用文件
