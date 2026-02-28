@@ -40,18 +40,6 @@ const DEFAULT_SCRIPT_INFO: Partial<ScriptInfo> = {
 // 检查是否在 Deno Deploy 环境
 const isDenoDeploy = Deno.env.get("DENO_DEPLOYMENT_ID") !== undefined;
 
-// 确保数据目录存在
-async function ensureDataDir(): Promise<void> {
-  if (isDenoDeploy) return;
-  try {
-    await Deno.mkdir("./data", { recursive: true });
-  } catch (error) {
-    if (!(error instanceof Deno.errors.AlreadyExists)) {
-      throw error;
-    }
-  }
-}
-
 export class ScriptStorage {
   private scripts: Map<string, ScriptStorageItem> = new Map();
   private defaultSourceId: string | null = null;
@@ -79,9 +67,6 @@ export class ScriptStorage {
 
   private async loadFromStorage(): Promise<void> {
     try {
-      // 确保数据目录存在
-      await ensureDataDir();
-      
       // 初始化 KV（用于缓存功能）
       this.kv = await this.initKv();
       if (this.kv) {
