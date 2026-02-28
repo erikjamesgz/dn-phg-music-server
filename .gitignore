@@ -4,4 +4,3 @@ scripts_data.json
 .DS_Store
 .env
 .env.local
-data/

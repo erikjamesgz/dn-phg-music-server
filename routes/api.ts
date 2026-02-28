@@ -249,79 +249,191 @@ export class APIRoutes {
   }
 
   private async handleIndex(): Promise<Response> {
+    const prefix = this.apiKey;
     const html = `
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>拼好歌 后端服务框架</title>
+  <title>洛雪音乐第三方音源后台</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
       padding: 20px;
     }
+    .container { max-width: 1200px; margin: 0 auto; }
+    h1 { color: white; text-align: center; margin-bottom: 30px; font-size: 2.5em; }
     .card {
-      background: white;
-      border-radius: 10px;
-      padding: 40px;
-      max-width: 600px;
-      text-align: center;
+      background: white; border-radius: 10px; padding: 20px; margin-bottom: 20px;
       box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
-    h1 { color: #333; margin-bottom: 20px; }
-    p { color: #666; line-height: 1.8; margin: 10px 0; }
-    code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; }
+    .status { display: flex; gap: 20px; flex-wrap: wrap; }
+    .status-item { flex: 1; min-width: 200px; text-align: center; }
+    .status-value { font-size: 2em; font-weight: bold; color: #667eea; }
+    .status-label { color: #666; margin-top: 5px; }
+    pre { background: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; }
     .btn {
-      display: inline-block;
-      padding: 12px 24px;
-      background: #667eea;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-      margin-top: 20px;
-      text-decoration: none;
+      display: inline-block; padding: 10px 20px; background: #667eea; color: white;
+      border: none; border-radius: 5px; cursor: pointer; margin: 5px;
     }
     .btn:hover { background: #5568d3; }
-    .info { 
-      background: #fff3cd; 
-      border: 1px solid #ffc107; 
-      padding: 15px; 
-      border-radius: 5px; 
-      margin: 20px 0; 
-      text-align: left;
-    }
+    .section { margin-bottom: 30px; }
+    .section h2 { color: #333; margin-bottom: 15px; border-bottom: 2px solid #667eea; padding-bottom: 10px; }
+    code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; }
+    .api-method { display: inline-block; padding: 3px 8px; border-radius: 3px; font-size: 0.85em; font-weight: bold; margin-right: 10px; }
+    .get { background: #61affe; color: white; }
+    .post { background: #49cc90; color: white; }
+    .put { background: #fca130; color: white; }
+    .delete { background: #f93e3e; color: white; }
+    .api-prefix { background: #fff3cd; border: 1px solid #ffc107; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+    .api-prefix code { font-size: 1.2em; font-weight: bold; color: #856404; }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>🎵 拼好歌 后端服务框架</h1>
-    <p>这是一个用 Deno Deploy 实现的个人后台服务框架</p>
-    
-    <div class="info">
-      <p><strong>获取 API Key：</strong></p>
-      <p>1. 点击左侧菜单 "Logs"</p>
-      <p>2. 在日志中搜索 <code>API前缀</code></p>
-      <p>3. 找到对应的 32 位字符串</p>
+  <div class="container">
+    <h1>🎵 洛雪音乐第三方音源后台</h1>
+
+    <div class="card">
+      <h2>🔑 API 访问密钥</h2>
+      <div class="api-prefix">
+        <p>所有 API 请求需要添加前缀：</p>
+        <p><code>/${prefix}</code></p>
+        <p style="margin-top:10px;color:#666;">示例：<code>/${prefix}/api/music/url</code></p>
+      </div>
+      <p style="color:#666;font-size:0.9em;">设置环境变量 <code>API_KEY</code> 可自定义密钥</p>
     </div>
-    
-    <p>
-      <a href="https://github.com/erikjamesgz/dn-phg-music-server" target="_blank" class="btn">
-        查看项目文档
-      </a>
-    </p>
+
+    <div class="card">
+      <h2>服务状态</h2>
+      <div class="status">
+        <div class="status-item">
+          <div class="status-value" id="scriptCount">-</div>
+          <div class="status-label">已加载脚本</div>
+        </div>
+        <div class="status-item">
+          <div class="status-value" id="activeSource">-</div>
+          <div class="status-label">默认音源</div>
+        </div>
+        <div class="status-item">
+          <div class="status-value">运行中</div>
+          <div class="status-label">服务状态</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>📜 脚本管理</h2>
+      <pre>
+<span class="api-method get">GET</span>  <code>/${prefix}/api/scripts/loaded</code>       - 获取已加载音源列表
+<span class="api-method get">GET</span>  <code>/${prefix}/api/scripts/default</code>      - 获取默认音源
+
+<span class="api-method post">POST</span> <code>/${prefix}/api/scripts</code>                - 导入脚本(内容)
+<span class="api-method post">POST</span> <code>/${prefix}/api/scripts/import/url</code>     - 从URL导入脚本
+<span class="api-method post">POST</span> <code>/${prefix}/api/scripts/import/file</code>    - 从文件导入脚本
+
+<span class="api-method post">POST</span> <code>/${prefix}/api/scripts/default</code>       - 设置默认音源
+<span class="api-method post">POST</span> <code>/${prefix}/api/scripts/delete</code>        - 删除脚本
+</pre>
+    </div>
+
+    <div class="card">
+      <h2>🎵 音乐播放</h2>
+      <pre>
+<span class="api-method post">POST</span> <code>/${prefix}/api/music/url</code>     - 获取音乐播放URL
+<span class="api-method post">POST</span> <code>/${prefix}/api/music/lyric</code>   - 获取歌词
+<span class="api-method post">POST</span> <code>/${prefix}/api/music/pic</code>     - 获取封面图
+
+请求参数示例:
+{
+  "source": "kw",           // 音源: kw/kg/tx/wy/mg/xm
+  "songmid": "123456",      // 歌曲ID
+  "hash": "xxx",            // 酷我专用
+  "songId": "xxx",          // 酷狗专用
+  "copyrightId": "xxx",     // 咪咕专用
+  "strMediaMid": "xxx",     // QQ专用
+  "quality": "320k",        // 音质: 128k/320k/flac/flac24bit
+  "name": "歌曲名",
+  "singer": "歌手名"
+}
+</pre>
+    </div>
+
+    <div class="card">
+      <h2>📡 请求处理</h2>
+      <pre>
+<span class="api-method post">POST</span> <code>/${prefix}/api/request</code>            - 发送请求
+<span class="api-method delete">DELETE</span> <code>/${prefix}/api/request/:key</code>  - 取消请求
+</pre>
+    </div>
+
+    <div class="card">
+      <h2>⚡ 快速操作</h2>
+      <button class="btn" onclick="refreshStatus()">刷新状态</button>
+      <button class="btn" onclick="listScripts()">查看脚本列表</button>
+      <button class="btn" onclick="importFromUrl()">从URL导入</button>
+    </div>
   </div>
+
+  <script>
+    const API_PREFIX = '/${prefix}';
+    
+    async function refreshStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        document.getElementById('scriptCount').textContent = data.scriptCount;
+        
+        const defaultRes = await fetch(API_PREFIX + '/api/scripts/default');
+        const defaultData = await defaultRes.json();
+        document.getElementById('activeSource').textContent = defaultData.name || '未设置';
+      } catch (e) {
+        console.error('获取状态失败:', e);
+      }
+    }
+
+    async function listScripts() {
+      try {
+        const res = await fetch(API_PREFIX + '/api/scripts/loaded');
+        const scripts = await res.json();
+        alert('已在控制台输出音源列表');
+      } catch (e) {
+      }
+    }
+
+    async function importFromUrl() {
+      const url = prompt('请输入脚本URL:',
+        'https://ghproxy.net/https://raw.githubusercontent.com/pdone/lx-music-source/main/sixyin/latest.js');
+      if (!url) return;
+      
+      try {
+        const res = await fetch(API_PREFIX + '/api/scripts/import/url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert('导入成功: ' + data.apiInfo.name);
+          refreshStatus();
+        } else {
+          alert('导入失败: ' + data.error);
+        }
+      } catch (e) {
+        alert('导入失败: ' + e.message);
+      }
+    }
+
+    refreshStatus();
+    setInterval(refreshStatus, 5000);
+  </script>
 </body>
 </html>
     `;
-    
+
     return new Response(html, {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });

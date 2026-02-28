@@ -6,7 +6,6 @@
   "exports": "./main.ts",
   "nodeModulesDir": "auto",
   "runtime": "deno",
-  "include": ["README.md"],
   "scripts": {
     "start": "deno run --allow-all --watch main.ts",
     "dev": "deno run --allow-all --watch main.ts",
