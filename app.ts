@@ -72,7 +72,7 @@ export class Application {
 
     if (typeof Deno.serve === "function") {
       console.log(`✅ 使用 Deno.serve 启动服务器`);
-      await Deno.serve({ ...options, handler });
+      Deno.serve({ ...options, handler });
     } else {
       console.log(`✅ 使用 Deno.listen 启动服务器`);
       const server = Deno.listen(options);
