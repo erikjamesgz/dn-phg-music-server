@@ -249,11 +249,7 @@ export class APIRoutes {
   }
 
   private async handleIndex(): Promise<Response> {
-    try {
-      const readmePath = new URL("../README.md", import.meta.url).pathname;
-      const readmeContent = await Deno.readTextFile(readmePath);
-      
-      const html = `
+    const html = `
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -266,86 +262,69 @@ export class APIRoutes {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       padding: 20px;
     }
-    .container { max-width: 900px; margin: 0 auto; }
     .card {
-      background: white; border-radius: 10px; padding: 30px; margin-bottom: 20px;
+      background: white;
+      border-radius: 10px;
+      padding: 40px;
+      max-width: 600px;
+      text-align: center;
       box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
-    h1 { color: #333; margin-bottom: 20px; border-bottom: 2px solid #667eea; padding-bottom: 10px; }
-    h2 { color: #667eea; margin: 25px 0 15px 0; border-bottom: 1px solid #eee; padding-bottom: 8px; }
-    h3 { color: #555; margin: 20px 0 10px 0; }
-    h4 { color: #666; margin: 15px 0 10px 0; }
-    p { color: #444; line-height: 1.8; margin: 10px 0; }
-    code { 
-      background: #f4f4f4; padding: 2px 6px; border-radius: 3px; 
-      font-family: 'Monaco', 'Menlo', monospace; font-size: 0.9em;
+    h1 { color: #333; margin-bottom: 20px; }
+    p { color: #666; line-height: 1.8; margin: 10px 0; }
+    code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; }
+    .btn {
+      display: inline-block;
+      padding: 12px 24px;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      margin-top: 20px;
+      text-decoration: none;
     }
-    pre { 
-      background: #2d2d2d; color: #f8f8f2; padding: 15px; border-radius: 5px; 
-      overflow-x: auto; margin: 15px 0;
+    .btn:hover { background: #5568d3; }
+    .info { 
+      background: #fff3cd; 
+      border: 1px solid #ffc107; 
+      padding: 15px; 
+      border-radius: 5px; 
+      margin: 20px 0; 
+      text-align: left;
     }
-    pre code { background: none; color: inherit; }
-    table { width: 100%; border-collapse: collapse; margin: 15px 0; }
-    th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
-    th { background: #f8f8f8; }
-    tr:nth-child(even) { background: #fafafa; }
-    blockquote { 
-      border-left: 4px solid #667eea; padding-left: 15px; margin: 15px 0; 
-      color: #666; background: #f9f9f9; padding: 10px 15px;
-    }
-    ul, ol { margin: 10px 0; padding-left: 25px; }
-    li { margin: 5px 0; line-height: 1.6; }
-    hr { border: none; border-top: 1px solid #eee; margin: 20px 0; }
-    a { color: #667eea; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    .warning { background: #fff3cd; border: 1px solid #ffc107; padding: 15px; border-radius: 5px; margin: 15px 0; }
-    strong { color: #333; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="card">
-      ${this.markdownToHtml(readmeContent)}
+  <div class="card">
+    <h1>🎵 拼好歌 后端服务框架</h1>
+    <p>这是一个用 Deno Deploy 实现的个人后台服务框架</p>
+    
+    <div class="info">
+      <p><strong>获取 API Key：</strong></p>
+      <p>1. 点击左侧菜单 "Logs"</p>
+      <p>2. 在日志中搜索 <code>API前缀</code></p>
+      <p>3. 找到对应的 32 位字符串</p>
     </div>
+    
+    <p>
+      <a href="https://github.com/erikjamesgz/dn-phg-music-server" target="_blank" class="btn">
+        查看项目文档
+      </a>
+    </p>
   </div>
 </body>
 </html>
-      `;
-      
-      return new Response(html, {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      });
-    } catch (error) {
-      return new Response("README.md not found", { status: 404 });
-    }
-  }
-
-  private markdownToHtml(markdown: string): string {
-    let html = markdown
-      .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-      .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-      .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-      .replace(/^#### (.*$)/gim, '<h4>$1</h4>')
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
-      .replace(/^\> (.*$)/gim, '<blockquote>$1</blockquote>')
-      .replace(/^\- (.*$)/gim, '<li>$1</li>')
-      .replace(/^\d+\. (.*$)/gim, '<li>$1</li>')
-      .replace(/^---$/gim, '<hr>')
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+    `;
     
-    html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
-    
-    html = html.replace(/\n\n/g, '</p><p>');
-    html = html.replace(/\n/g, '<br>');
-    
-    html = html.replace(/<li>/g, '<ul><li>').replace(/<\/li><br><ul><li>/g, '</li><li>');
-    html = html.replace(/<\/li><br>(?!<li>)/g, '</li></ul><br>');
-    
-    return html;
+    return new Response(html, {
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
   }
 
   private async handleStatus(_ctx: any): Promise<Response> {
