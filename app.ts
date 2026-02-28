@@ -17,70 +17,12 @@ export class Application {
   }
 
   async listen(options: { port: number; hostname?: string }) {
-    const handler = async (request: Request): Promise<Response> => {
-      const ctx = {
-        req: request,
-        res: null as Response | null,
-        params: {},
-        query: {},
-        body: null,
-      };
+    const server = Deno.listen(options);
 
-      try {
-        let url;
-        try {
-          url = new URL(request.url);
-        } catch (urlError) {
-          console.error("URL解析错误:", urlError, "Request URL:", request.url);
-          return new Response("Invalid URL", { status: 400 });
-        }
-        
-        ctx.query = Object.fromEntries(url.searchParams);
+    console.log(`✅ 服务器已启动，监听 ${options.hostname || "0.0.0.0"}:${options.port}`);
 
-        const match = this.router.match(request.method, url.pathname);
-
-        if (!match) {
-          return new Response("Not Found", { status: 404 });
-        }
-
-        ctx.params = match.params;
-
-        let index = 0;
-        const dispatch = async (i: number): Promise<void> => {
-          if (i > this.middlewares.length) {
-            ctx.res = await this.router.handle(ctx);
-            return;
-          }
-
-          if (i < this.middlewares.length) {
-            await this.middlewares[i](ctx, () => dispatch(i + 1));
-          } else {
-            ctx.res = await this.router.handle(ctx);
-          }
-        };
-
-        await dispatch(0);
-        return ctx.res || new Response("No response", { status: 500 });
-      } catch (error: any) {
-        console.error("请求处理错误:", error);
-        return new Response(JSON.stringify({ error: error.message }), {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-    };
-
-    if (typeof Deno.serve === "function") {
-      console.log(`✅ 使用 Deno.serve 启动服务器`);
-      await Deno.serve({ ...options, handler });
-    } else {
-      console.log(`✅ 使用 Deno.listen 启动服务器`);
-      const server = Deno.listen(options);
-      console.log(`✅ 服务器已启动，监听 ${options.hostname || "0.0.0.0"}:${options.port}`);
-
-      for await (const conn of server) {
-        this.handleConnection(conn);
-      }
+    for await (const conn of server) {
+      this.handleConnection(conn);
     }
   }
 
@@ -145,7 +87,7 @@ export class Application {
       };
 
       await dispatch(0);
-    } catch (error: any) {
+    } catch (error) {
       console.error("请求处理错误:", error);
       ctx.res = new Response(JSON.stringify({ error: error.message }), {
         status: 500,
