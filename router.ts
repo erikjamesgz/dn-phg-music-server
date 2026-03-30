@@ -19,6 +19,11 @@ export class Router {
     this.initRoutes();
   }
 
+  // 暴露路由列表用于调试
+  getRoutes(): Route[] {
+    return this.routes;
+  }
+
   private initRoutes() {}
 
   get(path: string, handler: RouteHandler) {

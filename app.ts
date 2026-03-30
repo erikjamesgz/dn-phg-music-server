@@ -35,6 +35,9 @@ export class Application {
           return new Response("Invalid URL", { status: 400 });
         }
         
+        // 调试：打印请求信息
+        console.log(`📥 收到请求: ${request.method} ${url.pathname}`);
+        
         ctx.query = Object.fromEntries(url.searchParams);
 
         const match = this.router.match(request.method, url.pathname);
@@ -72,7 +75,14 @@ export class Application {
 
     if (typeof Deno.serve === "function") {
       console.log(`✅ 使用 Deno.serve 启动服务器`);
-      await Deno.serve({ ...options, handler });
+      const routes = this.router.getRoutes();
+      console.log(`📋 已注册路由数量: ${routes.length}`);
+      // 打印所有注册的路由
+      routes.forEach((route, index) => {
+        console.log(`   [${index}] ${route.method} ${route.originalPath}`);
+      });
+      const server = Deno.serve({ ...options, handler });
+      await server.finished;
     } else {
       console.log(`✅ 使用 Deno.listen 启动服务器`);
       const server = Deno.listen(options);
