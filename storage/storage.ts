@@ -39,6 +39,7 @@ const DEFAULT_SCRIPT_INFO: Partial<ScriptInfo> = {
 
 // 检查是否在 Deno Deploy 环境
 const isDenoDeploy = Deno.env.get("DENO_DEPLOYMENT_ID") !== undefined;
+console.log(`[Storage] isDenoDeploy: ${isDenoDeploy}, DENO_DEPLOYMENT_ID: ${Deno.env.get("DENO_DEPLOYMENT_ID")}`);
 
 // 确保数据目录存在
 async function ensureDataDir(): Promise<void> {
@@ -78,6 +79,7 @@ export class ScriptStorage {
   }
 
   private async loadFromStorage(): Promise<void> {
+    console.log(`[Storage] loadFromStorage called, isDenoDeploy: ${isDenoDeploy}`);
     try {
       // 确保数据目录存在
       await ensureDataDir();
@@ -92,8 +94,11 @@ export class ScriptStorage {
 
       // Deno Deploy 环境使用 KV 存储脚本
       if (isDenoDeploy) {
+        console.log("[Storage] Using KV storage (Deno Deploy environment)");
         if (this.kv) {
+          console.log("[Storage] Reading from KV with key:", STORAGE_KEY);
           const result = await this.kv.get<StorageData>([STORAGE_KEY]);
+          console.log("[Storage] KV result:", result.value ? "有数据" : "无数据");
           if (result.value) {
             const data = result.value;
             if (data.scripts) {
@@ -103,6 +108,8 @@ export class ScriptStorage {
             }
             this.defaultSourceId = data.defaultSourceId || null;
             console.log(`[Storage] Loaded ${this.scripts.size} scripts from KV`);
+          } else {
+            console.log("[Storage] No data found in KV, scripts will be empty");
           }
         } else {
           console.log("[Storage] Deno Deploy environment but KV not available, scripts will be empty");
@@ -139,6 +146,7 @@ export class ScriptStorage {
   }
 
   private async saveToStorage(): Promise<void> {
+    console.log(`[Storage] saveToStorage called, isDenoDeploy: ${isDenoDeploy}, kv: ${this.kv ? '有' : '无'}, scripts: ${this.scripts.size}`);
     try {
       const items = Array.from(this.scripts.values());
       const data: StorageData = {
@@ -148,14 +156,17 @@ export class ScriptStorage {
       
       // Deno Deploy 环境使用 KV
       if (isDenoDeploy && this.kv) {
+        console.log("[Storage] Saving to KV, scripts count:", data.scripts.length);
         await this.kv.set([STORAGE_KEY], data);
-        console.log("[Storage] Saved to KV");
+        console.log("[Storage] Saved to KV successfully");
         return;
       }
 
       // 本地环境使用文件
+      console.log("[Storage] Saving to file, scripts count:", data.scripts.length);
       const jsonData = JSON.stringify(data, null, 2);
       await Deno.writeTextFile(STORAGE_FILE, jsonData);
+      console.log("[Storage] Saved to file successfully");
     } catch (error) {
       console.error("保存脚本存储失败:", error);
     }
