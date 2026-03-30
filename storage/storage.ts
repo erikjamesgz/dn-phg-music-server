@@ -130,18 +130,32 @@ export class ScriptStorage {
                 if (item.sourceUrl) {
                   console.log(`[Storage] Downloading script from URL: ${item.sourceUrl}`);
                   try {
-                    const response = await fetch(item.sourceUrl);
+                    const response = await fetch(item.sourceUrl, {
+                      headers: {
+                        'User-Agent': 'Mozilla/5.0 (compatible; Deno Deploy)',
+                      },
+                    });
+                    if (!response.ok) {
+                      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
                     scriptContent = await response.text();
                     console.log(`[Storage] Script downloaded, size: ${scriptContent.length} bytes`);
                   } catch (e) {
                     console.error(`[Storage] Failed to download script from ${item.sourceUrl}:`, e);
+                    // 下载失败，跳过这个脚本，不加入列表
+                    continue;
                   }
                 }
-                const fullItem: ScriptStorageItem = {
-                  ...item,
-                  script: scriptContent,
-                };
-                this.scripts.set(item.id, fullItem);
+                // 只有下载成功的脚本才加入列表
+                if (scriptContent) {
+                  const fullItem: ScriptStorageItem = {
+                    ...item,
+                    script: scriptContent,
+                  };
+                  this.scripts.set(item.id, fullItem);
+                } else {
+                  console.warn(`[Storage] Script ${item.name} has no content, skipping`);
+                }
               }
             }
             this.defaultSourceId = data.defaultSourceId || null;
