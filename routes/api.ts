@@ -112,6 +112,9 @@ export class APIRoutes {
     router.get("/", () => this.handleIndex());
     router.get("/api/status", (ctx) => this.handleStatus(ctx));
 
+    // 管理页面
+    router.get(`${prefix}/admin`, () => this.handleAdminPage());
+
     router.post(`${prefix}/api/scripts`, (ctx) => this.handleImportScript(ctx));
     router.get(`${prefix}/api/scripts/loaded`, (ctx) => this.handleGetLoadedScripts(ctx));
     router.post(`${prefix}/api/scripts/delete`, (ctx) => this.handleRemoveScript(ctx));
@@ -320,6 +323,254 @@ export class APIRoutes {
     } catch (error) {
       return new Response("README.md not found", { status: 404 });
     }
+  }
+
+  private async handleAdminPage(): Promise<Response> {
+    const scripts = this.storage.getLoadedScripts();
+    const defaultSource = this.storage.getDefaultSourceInfo();
+    const scriptsJson = JSON.stringify(scripts);
+    const defaultSourceJson = JSON.stringify(defaultSource);
+    
+    const html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>音源管理 - 拼好歌</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container { max-width: 900px; margin: 0 auto; }
+    .card {
+      background: white; border-radius: 10px; padding: 25px; margin-bottom: 20px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    h1 { color: #333; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+    h1 span { font-size: 24px; }
+    h2 { color: #667eea; margin: 0 0 15px 0; font-size: 18px; }
+    .form-group { margin-bottom: 15px; }
+    label { display: block; margin-bottom: 5px; color: #555; font-weight: 500; }
+    input[type="text"], textarea {
+      width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px;
+      font-size: 14px; transition: border-color 0.2s;
+    }
+    input[type="text"]:focus, textarea:focus { outline: none; border-color: #667eea; }
+    .btn {
+      padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer;
+      font-size: 14px; font-weight: 500; transition: all 0.2s; margin-right: 10px;
+    }
+    .btn-primary { background: #667eea; color: white; }
+    .btn-primary:hover { background: #5a6fd6; }
+    .btn-danger { background: #dc3545; color: white; }
+    .btn-danger:hover { background: #c82333; }
+    .btn-success { background: #28a745; color: white; }
+    .btn-success:hover { background: #218838; }
+    .btn-secondary { background: #6c757d; color: white; }
+    .btn-secondary:hover { background: #5a6268; }
+    .btn-sm { padding: 6px 12px; font-size: 12px; }
+    .script-list { list-style: none; }
+    .script-item {
+      border: 1px solid #eee; border-radius: 8px; padding: 15px; margin-bottom: 10px;
+      display: flex; justify-content: space-between; align-items: center;
+      transition: all 0.2s;
+    }
+    .script-item:hover { border-color: #667eea; box-shadow: 0 2px 8px rgba(102,126,234,0.1); }
+    .script-item.default { border-color: #28a745; background: #f8fff8; }
+    .script-info h3 { font-size: 16px; color: #333; margin-bottom: 5px; }
+    .script-info p { font-size: 13px; color: #666; margin: 2px 0; }
+    .script-info .tag {
+      display: inline-block; background: #e9ecef; color: #495057;
+      padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-right: 5px;
+    }
+    .script-info .tag.default-tag { background: #28a745; color: white; }
+    .script-actions { display: flex; gap: 8px; }
+    .empty-state { text-align: center; padding: 40px; color: #666; }
+    .empty-state span { font-size: 48px; display: block; margin-bottom: 10px; }
+    .toast {
+      position: fixed; bottom: 20px; right: 20px; padding: 15px 25px;
+      border-radius: 8px; color: white; font-weight: 500;
+      transform: translateY(100px); opacity: 0; transition: all 0.3s; z-index: 1000;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success { background: #28a745; }
+    .toast.error { background: #dc3545; }
+    .loading { display: none; text-align: center; padding: 20px; }
+    .loading.show { display: block; }
+    .spinner {
+      border: 3px solid #f3f3f3; border-top: 3px solid #667eea;
+      border-radius: 50%; width: 30px; height: 30px;
+      animation: spin 1s linear infinite; margin: 0 auto 10px;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .quick-import { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+    .quick-import .btn { flex: 1; min-width: 120px; text-align: center; }
+    .status-bar { display: flex; gap: 20px; margin-bottom: 20px; flex-wrap: wrap; }
+    .status-item {
+      background: #f8f9fa; padding: 12px 20px; border-radius: 8px;
+      text-align: center; flex: 1; min-width: 100px;
+    }
+    .status-item .value { font-size: 24px; font-weight: bold; color: #667eea; }
+    .status-item .label { font-size: 12px; color: #666; margin-top: 5px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1><span>🎵</span> 音源管理</h1>
+      <div class="status-bar">
+        <div class="status-item">
+          <div class="value" id="scriptCount">0</div>
+          <div class="label">已加载音源</div>
+        </div>
+        <div class="status-item">
+          <div class="value" id="defaultSource">未设置</div>
+          <div class="label">默认音源</div>
+        </div>
+      </div>
+      <h2>📥 导入音源</h2>
+      <div class="form-group">
+        <label>从 URL 导入</label>
+        <div style="display: flex; gap: 10px;">
+          <input type="text" id="importUrl" placeholder="输入音源脚本 URL..." style="flex: 1;">
+          <button class="btn btn-primary" onclick="importFromUrl()">导入</button>
+        </div>
+      </div>
+      <div class="quick-import">
+        <button class="btn btn-secondary" onclick="quickImport('https://raw.githubusercontent.com/pdone/lx-music-source/main/sixyin/latest.js')">六音音源</button>
+        <button class="btn btn-secondary" onclick="quickImport('https://raw.githubusercontent.com/lyswhut/lx-music-source/master/scripts/dist/lx-music-source.js')">官方示例</button>
+      </div>
+      <div class="form-group" style="margin-top: 20px;">
+        <label>从文件导入</label>
+        <input type="file" id="importFile" accept=".js" onchange="importFromFile()">
+      </div>
+    </div>
+    <div class="card">
+      <h2>📋 已加载音源</h2>
+      <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <div>处理中...</div>
+      </div>
+      <ul class="script-list" id="scriptList"></ul>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+  <script>
+    const API_PREFIX = '/${this.apiKey}';
+    const SCRIPTS_DATA = ${scriptsJson};
+    const DEFAULT_SOURCE = ${defaultSourceJson};
+    
+    function init() {
+      document.getElementById('scriptCount').textContent = SCRIPTS_DATA.length;
+      document.getElementById('defaultSource').textContent = DEFAULT_SOURCE ? DEFAULT_SOURCE.name : '未设置';
+      renderScriptList();
+    }
+    
+    function renderScriptList() {
+      const list = document.getElementById('scriptList');
+      if (SCRIPTS_DATA.length === 0) {
+        list.innerHTML = '<li class="empty-state"><span>📭</span><p>暂无音源，请导入</p></li>';
+        return;
+      }
+      list.innerHTML = SCRIPTS_DATA.map(function(script) {
+        var tags = '<span class="tag">v' + (script.version || '未知') + '</span>';
+        tags += '<span class="tag">' + (script.author || '未知作者') + '</span>';
+        script.supportedSources.forEach(function(s) { tags += '<span class="tag">' + s + '</span>'; });
+        var defaultTag = script.isDefault ? '<span class="tag default-tag">默认</span>' : '';
+        var setDefaultBtn = !script.isDefault ? '<button class="btn btn-success btn-sm" onclick="setDefault(\\'' + script.id + '\\')">设为默认</button>' : '';
+        var actions = setDefaultBtn + '<button class="btn btn-danger btn-sm" onclick="deleteScript(\\'' + script.id + '\\')">删除</button>';
+        return '<li class="script-item' + (script.isDefault ? ' default' : '') + '" id="script-' + script.id + '">' +
+          '<div class="script-info"><h3>' + script.name + ' ' + defaultTag + '</h3>' +
+          '<p>' + (script.description || '无描述') + '</p><p>' + tags + '</p>' +
+          '<p style="font-size: 11px; color: #999;">ID: ' + script.id + '</p></div>' +
+          '<div class="script-actions">' + actions + '</div></li>';
+      }).join('');
+    }
+    
+    function showToast(message, type) {
+      type = type || 'success';
+      var toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = 'toast ' + type;
+      toast.classList.add('show');
+      setTimeout(function() { toast.classList.remove('show'); }, 3000);
+    }
+    
+    function showLoading() { document.getElementById('loading').classList.add('show'); }
+    function hideLoading() { document.getElementById('loading').classList.remove('show'); }
+    
+    function importFromUrl() {
+      var url = document.getElementById('importUrl').value.trim();
+      if (!url) { showToast('请输入 URL', 'error'); return; }
+      showLoading();
+      fetch(API_PREFIX + '/api/scripts/import/url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url })
+      }).then(function(res) { return res.json(); }).then(function(data) {
+        if (data.code === 200 || data.code === 201) { showToast('导入成功'); setTimeout(function() { location.reload(); }, 1000); }
+        else { showToast(data.msg || '导入失败', 'error'); }
+      }).catch(function(e) { showToast('导入失败: ' + e.message, 'error'); }).finally(hideLoading);
+    }
+    
+    function quickImport(url) {
+      document.getElementById('importUrl').value = url;
+      importFromUrl();
+    }
+    
+    function importFromFile() {
+      var file = document.getElementById('importFile').files[0];
+      if (!file) return;
+      showLoading();
+      file.text().then(function(content) {
+        return fetch(API_PREFIX + '/api/scripts/import/file', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ script: content, fileName: file.name })
+        });
+      }).then(function(res) { return res.json(); }).then(function(data) {
+        if (data.code === 200 || data.code === 201) { showToast('导入成功'); setTimeout(function() { location.reload(); }, 1000); }
+        else { showToast(data.msg || '导入失败', 'error'); }
+      }).catch(function(e) { showToast('导入失败: ' + e.message, 'error'); }).finally(hideLoading);
+    }
+    
+    function deleteScript(id) {
+      if (!confirm('确定要删除这个音源吗？')) return;
+      showLoading();
+      fetch(API_PREFIX + '/api/scripts/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: id })
+      }).then(function(res) { return res.json(); }).then(function(data) {
+        if (data.code === 200) { showToast('删除成功'); setTimeout(function() { location.reload(); }, 1000); }
+        else { showToast(data.msg || '删除失败', 'error'); }
+      }).catch(function(e) { showToast('删除失败: ' + e.message, 'error'); }).finally(hideLoading);
+    }
+    
+    function setDefault(id) {
+      showLoading();
+      fetch(API_PREFIX + '/api/scripts/default', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: id })
+      }).then(function(res) { return res.json(); }).then(function(data) {
+        if (data.code === 200) { showToast('设置成功'); setTimeout(function() { location.reload(); }, 1000); }
+        else { showToast(data.msg || '设置失败', 'error'); }
+      }).catch(function(e) { showToast('设置失败: ' + e.message, 'error'); }).finally(hideLoading);
+    }
+    
+    init();
+  </script>
+</body>
+</html>`;
+    
+    return new Response(html, {
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
   }
 
   private markdownToHtml(markdown: string): string {
