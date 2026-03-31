@@ -1,0 +1,10 @@
+[project]
+requires = ["deno"]
+
+[dev]
+build = []
+run = ["/bin/sh", "-c", "PORT=5000 /root/.deno/bin/deno run --allow-net --allow-read --allow-write --allow-import --allow-env main.ts"]
+
+[deploy]
+build = []
+run = ["/bin/sh", "-c", "PORT=5000 /root/.deno/bin/deno run --allow-net --allow-read --allow-write --allow-import --allow-env main.ts"]

@@ -17,7 +17,7 @@ console.log(`   完整路径示例: https://xxxxx-dn-phg-musi-xx.deno.dev/${apiK
 
 new APIRoutes(app, handler, storage, engine, apiKey);
 
-const port = Deno.env.get("PORT") || "8080";
+const port = Deno.env.get("PORT") || Deno.env.get("DEPLOY_RUN_PORT") || "5000";
 
 console.log(`服务器运行在 http://localhost:${port}`);
 
