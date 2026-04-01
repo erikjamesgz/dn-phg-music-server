@@ -8,8 +8,13 @@ import { SongListService } from "../services/songlist_service.ts";
 import { ShortLinkService } from "../services/shortlink_service.ts";
 
 const log = (...args: any[]) => {
-  const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ') + '\n';
-  Deno.stderr.write(new TextEncoder().encode(msg));
+  const timestamp = new Date().toISOString();
+  const msg = `[${timestamp}] ${args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ')}\n`;
+  try {
+    Deno.stderr.writeSync(new TextEncoder().encode(msg));
+  } catch {
+    console.log(msg);
+  }
 };
 
 interface ApiResponse<T = any> {
