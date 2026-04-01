@@ -23,6 +23,7 @@ interface StorageData {
 }
 
 const STORAGE_KEY = "dn_music_scripts";
+const SCRIPT_CONTENT_PREFIX = "dn_script_content_";
 const STORAGE_FILE = "./data/scripts.json";
 const CACHE_FILE = "./data/music_url_cache.json";
 const SOURCE_STATS_FILE = "./data/source_stats.json";
@@ -98,6 +99,11 @@ export class ScriptStorage {
             const data = result.value;
             if (data.scripts) {
               for (const item of data.scripts) {
+                // 从单独的 KV key 中读取脚本内容
+                const scriptContentResult = await this.kv.get<string>([SCRIPT_CONTENT_PREFIX, item.id]);
+                if (scriptContentResult.value) {
+                  item.script = scriptContentResult.value;
+                }
                 this.scripts.set(item.id, item);
               }
             }
@@ -148,8 +154,21 @@ export class ScriptStorage {
       
       // Deno Deploy 环境使用 KV
       if (isDenoDeploy && this.kv) {
-        await this.kv.set([STORAGE_KEY], data);
-        console.log("[Storage] Saved to KV");
+        // 将脚本内容单独存储，避免超过 KV 的 64KB 限制
+        for (const item of items) {
+          if (item.script && item.script.length > 0) {
+            await this.kv.set([SCRIPT_CONTENT_PREFIX, item.id], item.script);
+          }
+        }
+        
+        // 存储元数据（不包含 script 内容）
+        const metadataOnly = items.map(item => ({
+          ...item,
+          script: '',
+        }));
+        
+        await this.kv.set([STORAGE_KEY], { ...data, scripts: metadataOnly });
+        console.log("[Storage] Saved to KV (scripts stored separately)");
         return;
       }
 
@@ -496,6 +515,11 @@ export class ScriptStorage {
         }
       }
       
+      // 删除 KV 中的脚本内容
+      if (isDenoDeploy && this.kv) {
+        await this.kv.delete([SCRIPT_CONTENT_PREFIX, id]);
+      }
+      
       await this.saveToStorage();
     }
     return deleted;
@@ -512,6 +536,12 @@ export class ScriptStorage {
       }
     }
     if (removed > 0) {
+      // 删除 KV 中的脚本内容
+      if (isDenoDeploy && this.kv) {
+        for (const id of ids) {
+          await this.kv.delete([SCRIPT_CONTENT_PREFIX, id]);
+        }
+      }
       await this.saveToStorage();
     }
     return removed;
