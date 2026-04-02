@@ -10,6 +10,7 @@ interface ScriptStorageItem {
   homepage: string;
   version: string;
   script: string;
+  scriptUrl?: string;
   allowShowUpdateAlert: boolean;
   isDefault: boolean;
   supportedSources: string[];
@@ -23,8 +24,6 @@ interface StorageData {
 }
 
 const STORAGE_KEY = "dn_music_scripts";
-const SCRIPT_CONTENT_PREFIX = "dn_script_content_";
-const CHUNK_SIZE = 60000;
 const STORAGE_FILE = "./data/scripts.json";
 const CACHE_FILE = "./data/music_url_cache.json";
 const SOURCE_STATS_FILE = "./data/source_stats.json";
@@ -100,23 +99,13 @@ export class ScriptStorage {
             const data = result.value;
             if (data.scripts) {
               for (const item of data.scripts) {
-                // 从分块的 KV key 中读取脚本内容
-                let scriptContent = '';
-                let chunkIndex = 0;
-                while (true) {
-                  const chunkResult = await this.kv.get<string>([SCRIPT_CONTENT_PREFIX, item.id, chunkIndex]);
-                  if (!chunkResult.value) break;
-                  scriptContent += chunkResult.value;
-                  chunkIndex++;
-                }
-                if (scriptContent) {
-                  item.script = scriptContent;
-                }
+                // 脚本内容不存储在 KV 中，只存储 URL
+                // 脚本内容会在需要时从 URL 获取
                 this.scripts.set(item.id, item);
               }
             }
             this.defaultSourceId = data.defaultSourceId || null;
-            console.log(`[Storage] Loaded ${this.scripts.size} scripts from KV`);
+            console.log(`[Storage] Loaded ${this.scripts.size} scripts from KV (metadata only)`);
           }
         } else {
           console.log("[Storage] Deno Deploy environment but KV not available, scripts will be empty");
@@ -158,33 +147,7 @@ export class ScriptStorage {
       
       // Deno Deploy 环境使用 KV
       if (isDenoDeploy && this.kv) {
-        // 将脚本内容分块存储，避免超过 KV 的 64KB 限制
-        for (const item of items) {
-          if (item.script && item.script.length > 0) {
-            // 先删除旧的分块
-            let chunkIndex = 0;
-            while (true) {
-              const result = await this.kv.get<string>([SCRIPT_CONTENT_PREFIX, item.id, chunkIndex]);
-              if (!result.value) break;
-              await this.kv.delete([SCRIPT_CONTENT_PREFIX, item.id, chunkIndex]);
-              chunkIndex++;
-            }
-            
-            // 分块存储新内容
-            const scriptContent = item.script;
-            const totalChunks = Math.ceil(scriptContent.length / CHUNK_SIZE);
-            console.log(`[Storage] Script ${item.id} length: ${scriptContent.length}, chunks: ${totalChunks}`);
-            
-            for (let i = 0; i < scriptContent.length; i += CHUNK_SIZE) {
-              const chunk = scriptContent.slice(i, i + CHUNK_SIZE);
-              const idx = Math.floor(i / CHUNK_SIZE);
-              console.log(`[Storage] Storing chunk ${idx}, size: ${chunk.length}`);
-              await this.kv.set([SCRIPT_CONTENT_PREFIX, item.id, idx], chunk);
-            }
-          }
-        }
-        
-        // 存储元数据（不包含 script 内容）
+        // 只存储元数据，不存储脚本内容（脚本内容通过 URL 获取）
         const metadataOnly = items.map(item => ({
           id: item.id,
           name: item.name,
@@ -193,6 +156,7 @@ export class ScriptStorage {
           homepage: item.homepage,
           version: item.version,
           script: '',
+          scriptUrl: item.scriptUrl || '',
           allowShowUpdateAlert: item.allowShowUpdateAlert,
           isDefault: item.isDefault,
           supportedSources: item.supportedSources,
@@ -206,7 +170,7 @@ export class ScriptStorage {
         };
         
         await this.kv.set([STORAGE_KEY], metadata);
-        console.log("[Storage] Saved to KV (scripts stored in chunks)");
+        console.log("[Storage] Saved to KV (metadata only, script content not stored)");
         return;
       }
 
@@ -397,10 +361,26 @@ export class ScriptStorage {
         throw new Error(`脚本过大: ${script.length} 字节 (最大 ${MAX_SCRIPT_SIZE} 字节)`);
       }
       
-      const scriptInfo = await this.importScript(script);
-      
-      // 如果是第一个脚本，自动设置为默认
-      if (this.scripts.size === 1) {
+      const scriptInfo = this.parseScriptInfo(script);
+      const supportedSources = this.parseSupportedSources(script);
+
+      // 只存储 URL，不存储脚本内容
+      const storageItem: ScriptStorageItem = {
+        ...scriptInfo,
+        script: '',
+        scriptUrl: url,
+        allowShowUpdateAlert: true,
+        isDefault: false,
+        supportedSources,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      const isFirstScript = this.scripts.size === 0;
+      this.scripts.set(scriptInfo.id, storageItem);
+      await this.saveToStorage();
+
+      if (isFirstScript) {
         await this.setDefaultSource(scriptInfo.id);
       }
       
@@ -456,7 +436,28 @@ export class ScriptStorage {
       return null;
     }
 
-    const decompressedScript = await this.inflateScript(item.script);
+    let rawScript = '';
+    
+    // 如果有 rawScript 字段（本地存储的旧格式），直接返回
+    if ((item as any).rawScript) {
+      rawScript = (item as any).rawScript;
+    } else if (item.scriptUrl && !item.script) {
+      // 如果有脚本 URL 但没有脚本内容，从 URL 获取
+      console.log(`[Storage] Fetching script from URL: ${item.scriptUrl}`);
+      try {
+        const response = await fetch(item.scriptUrl);
+        if (response.ok) {
+          rawScript = await response.text();
+          console.log(`[Storage] Script fetched from URL, length: ${rawScript.length}`);
+        } else {
+          console.error(`[Storage] Failed to fetch script from URL: ${response.status}`);
+        }
+      } catch (error) {
+        console.error(`[Storage] Error fetching script from URL:`, error);
+      }
+    } else if (item.script) {
+      rawScript = await this.inflateScript(item.script);
+    }
 
     return {
       id: item.id,
@@ -465,7 +466,7 @@ export class ScriptStorage {
       author: item.author,
       homepage: item.homepage,
       version: item.version,
-      rawScript: decompressedScript,
+      rawScript,
       supportedSources: item.supportedSources,
     };
   }
@@ -474,6 +475,30 @@ export class ScriptStorage {
     const item = this.scripts.get(id);
     if (!item) {
       return null;
+    }
+
+    // 如果有 rawScript 字段（本地存储的旧格式），直接返回
+    if ((item as any).rawScript) {
+      return (item as any).rawScript;
+    }
+
+    // 如果有脚本 URL 但没有脚本内容，从 URL 获取
+    if (item.scriptUrl && !item.script) {
+      console.log(`[Storage] Fetching script from URL: ${item.scriptUrl}`);
+      try {
+        const response = await fetch(item.scriptUrl);
+        if (response.ok) {
+          const script = await response.text();
+          console.log(`[Storage] Script fetched from URL, length: ${script.length}`);
+          return script;
+        } else {
+          console.error(`[Storage] Failed to fetch script from URL: ${response.status}`);
+          return null;
+        }
+      } catch (error) {
+        console.error(`[Storage] Error fetching script from URL:`, error);
+        return null;
+      }
     }
 
     return await this.inflateScript(item.script);
@@ -499,7 +524,27 @@ export class ScriptStorage {
   async getAllScripts(): Promise<ScriptInfo[]> {
     const result: ScriptInfo[] = [];
     for (const item of this.scripts.values()) {
-      const decompressedScript = await this.inflateScript(item.script);
+      let rawScript = '';
+      
+      if ((item as any).rawScript) {
+        rawScript = (item as any).rawScript;
+      } else if (item.scriptUrl && !item.script) {
+        try {
+          console.log(`[Storage] Fetching script from URL: ${item.scriptUrl}`);
+          const response = await fetch(item.scriptUrl);
+          if (response.ok) {
+            rawScript = await response.text();
+            console.log(`[Storage] Script fetched from URL, length: ${rawScript.length}`);
+          } else {
+            console.error(`[Storage] Failed to fetch script from URL: ${response.status}`);
+          }
+        } catch (error) {
+          console.error(`[Storage] Error fetching script from URL:`, error);
+        }
+      } else if (item.script) {
+        rawScript = await this.inflateScript(item.script);
+      }
+      
       result.push({
         id: item.id,
         name: item.name,
@@ -507,7 +552,7 @@ export class ScriptStorage {
         author: item.author,
         homepage: item.homepage,
         version: item.version,
-        rawScript: decompressedScript,
+        rawScript,
         supportedSources: item.supportedSources,
       });
     }
@@ -557,17 +602,6 @@ export class ScriptStorage {
         }
       }
       
-      // 删除 KV 中的脚本内容（所有分块）
-      if (isDenoDeploy && this.kv) {
-        let chunkIndex = 0;
-        while (true) {
-          const result = await this.kv.get<string>([SCRIPT_CONTENT_PREFIX, id, chunkIndex]);
-          if (!result.value) break;
-          await this.kv.delete([SCRIPT_CONTENT_PREFIX, id, chunkIndex]);
-          chunkIndex++;
-        }
-      }
-      
       await this.saveToStorage();
     }
     return deleted;
@@ -584,18 +618,6 @@ export class ScriptStorage {
       }
     }
     if (removed > 0) {
-      // 删除 KV 中的脚本内容（所有分块）
-      if (isDenoDeploy && this.kv) {
-        for (const id of ids) {
-          let chunkIndex = 0;
-          while (true) {
-            const result = await this.kv.get<string>([SCRIPT_CONTENT_PREFIX, id, chunkIndex]);
-            if (!result.value) break;
-            await this.kv.delete([SCRIPT_CONTENT_PREFIX, id, chunkIndex]);
-            chunkIndex++;
-          }
-        }
-      }
       await this.saveToStorage();
     }
     return removed;
@@ -770,6 +792,11 @@ export class ScriptStorage {
   }
 
   async setMusicUrlCache(source: string, songId: string, url: string, quality: string): Promise<void> {
+    if (!this.musicUrlCacheEnabled) {
+      console.log(`[Storage] Cache disabled, skipping cache set for ${source}/${songId}/${quality}`);
+      return;
+    }
+
     const cacheKey = `${source}_${songId}_${quality}`;
     const cacheEntry: MusicUrlCacheEntry = {
       url,
@@ -802,6 +829,10 @@ export class ScriptStorage {
   }
 
   async getMusicUrlCache(source: string, songId: string, quality: string): Promise<MusicUrlCacheEntry | null> {
+    if (!this.musicUrlCacheEnabled) {
+      return null;
+    }
+
     const cacheKey = `${source}_${songId}_${quality}`;
 
     if (this.kv) {
@@ -940,7 +971,6 @@ export class ScriptStorage {
     }
 
     console.log(`[Storage] Updated stats for script ${scriptId}, source ${source}: success=${stats[scriptId][source].success}, fail=${stats[scriptId][source].fail}`);
-    await this.saveSourceStats();
   }
 
   private getSuccessRate(stats: SourceStats): number {
@@ -1057,7 +1087,6 @@ export class ScriptStorage {
     }
 
     console.log(`[Storage] Updated script stats for ${scriptId}: success=${scriptStat.success}, fail=${scriptStat.fail}, avgTime=${scriptStat.avgResponseTime.toFixed(0)}ms`);
-    await this.saveScriptStats();
   }
 
   getScriptSuccessRate(stats: ScriptStats): number {
@@ -1116,7 +1145,6 @@ export class ScriptStorage {
       console.log(`[Storage] Circuit breaker for script ${scriptId} has reset`);
       state.isTripped = false;
       state.consecutiveFails = 0;
-      await this.saveCircuitBreakerState();
       return false;
     }
 
@@ -1145,25 +1173,46 @@ export class ScriptStorage {
       state.lastTripAt = Date.now();
       state.resetAt = Date.now() + ScriptStorage.CIRCUIT_BREAKER_RESET_TIME;
       console.log(`[Storage] Circuit breaker TRIPPED for script ${scriptId}. Will reset at ${new Date(state.resetAt).toISOString()}`);
-      await this.saveCircuitBreakerState();
+      await this.saveAllStats();
       return true;
     }
 
     console.log(`[Storage] Script ${scriptId} consecutive fails: ${state.consecutiveFails}/${ScriptStorage.CIRCUIT_BREAKER_THRESHOLD}`);
-    await this.saveCircuitBreakerState();
     return false;
+  }
+
+  private async saveAllStats(): Promise<void> {
+    if (this.kv) {
+      const promises = [];
+      
+      if (this.scriptStatsCache) {
+        promises.push(this.kv.set(ScriptStorage.SCRIPT_STATS_KEY, this.scriptStatsCache));
+      }
+      
+      if (this.sourceStatsCache) {
+        promises.push(this.kv.set(ScriptStorage.SOURCE_STATS_KEY, this.sourceStatsCache));
+      }
+      
+      if (this.circuitBreakerCache) {
+        promises.push(this.kv.set(ScriptStorage.CIRCUIT_BREAKER_KEY, this.circuitBreakerCache));
+      }
+      
+      await Promise.all(promises);
+      console.log(`[Storage] All stats saved to KV (circuit breaker triggered)`);
+    }
   }
 
   async recordScriptSuccess(scriptId: string): Promise<void> {
     const states = await this.getCircuitBreakerState();
 
     if (states[scriptId]) {
+      const wasTripped = states[scriptId].isTripped;
       states[scriptId].consecutiveFails = 0;
-      if (states[scriptId].isTripped) {
+      if (wasTripped) {
         states[scriptId].isTripped = false;
         console.log(`[Storage] Circuit breaker RESET for script ${scriptId} due to success`);
+        await this.saveAllStats();
       }
-      await this.saveCircuitBreakerState();
     }
   }
 

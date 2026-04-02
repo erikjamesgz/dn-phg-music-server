@@ -115,18 +115,26 @@ export class ScriptRunner {
               url,
               statusCode: response.status,
               bodyLength: rawString.length,
-              bodyPreview: rawString.substring(0, 200)
+              bodyPreview: rawString.substring(0, 500)
             });
 
             if (callback) {
-              callback(null, respObj, body);
+              try {
+                callback(null, respObj, body);
+              } catch (cbError: any) {
+                console.error('[ScriptRunner] Callback error:', cbError.message);
+              }
             }
           })
           .catch((error) => {
             clearTimeout(timeoutId);
             console.error('[ScriptRunner] API Error:', url, error.message);
             if (callback) {
-              callback(error, null, null);
+              try {
+                callback(error, null, null);
+              } catch (cbError: any) {
+                console.error('[ScriptRunner] Callback error in catch:', cbError.message);
+              }
             }
           });
 
@@ -309,6 +317,8 @@ export class ScriptRunner {
       (globalThis as any).require = require;
 
       console.error('[ScriptRunner] 开始执行脚本...');
+      console.error('[ScriptRunner] rawScript length:', this.scriptInfo.rawScript?.length || 0);
+      console.error('[ScriptRunner] rawScript preview:', this.scriptInfo.rawScript?.substring(0, 200));
       
       const scriptFn = new Function(
         'window', 'self', 'globalThis', 'lx', 'events',
@@ -363,6 +373,27 @@ export class ScriptRunner {
 
       if (!isInitedApi) {
         throw new Error('Initialization failed');
+      }
+
+      // 等待 request handler 被设置（最多 5 秒）
+      if (!events.request) {
+        console.error('[ScriptRunner] 等待 request handler 注册...');
+        await new Promise<void>((resolve) => {
+          const timeoutId = setTimeout(() => {
+            clearInterval(checkInterval);
+            console.error('[ScriptRunner] 等待 request handler 超时');
+            resolve();
+          }, 5000);
+
+          const checkInterval = setInterval(() => {
+            if (events.request) {
+              clearTimeout(timeoutId);
+              clearInterval(checkInterval);
+              console.error('[ScriptRunner] Request handler 已注册');
+              resolve();
+            }
+          }, 100);
+        });
       }
 
       if (events.request) {

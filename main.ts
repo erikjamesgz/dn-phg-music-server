@@ -24,6 +24,10 @@ console.error(`服务器运行在 http://localhost:${port}`);
 const scripts = await storage.getAllScripts();
 console.error(`找到 ${scripts.length} 个脚本，开始异步加载...`);
 
+for (const script of scripts) {
+  console.error(`[Debug] 脚本 ${script.name} rawScript 长度: ${script.rawScript?.length || 0}`);
+}
+
 let hasInitFailed = false;
 
 const loadScriptPromises = scripts.map(async (script) => {
